@@ -12,13 +12,16 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed wails.json
+var wailsJsonContent []byte
+
 func main() {
 	app := NewApp()
 
 	err := wails.Run(&options.App{
-		Title:  "nioh2mod-js",
-		Width:  1024,
-		Height: 768,
+		Title:  "nioh2modManager",
+		Width:  1324,
+		Height: 800,
 		AssetServer: &assetserver.Options{
 			Assets:  assets,
 			Handler: http.HandlerFunc(app.fileHandler),

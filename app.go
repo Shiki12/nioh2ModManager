@@ -2036,17 +2036,46 @@ type AboutInfo struct {
 	Value string `json:"value"`
 }
 
-// GetAbout 返回关于页信息（有序）
+// wailsProjectInfo 对应 wails.json 的 info 配置（唯一版本/产品信息来源）
+type wailsProjectInfo struct {
+	Info struct {
+		ProductName    string `json:"productName"`
+		ProductVersion string `json:"productVersion"`
+		CompanyName    string `json:"companyName"`
+		Copyright      string `json:"copyright"`
+		Comments       string `json:"comments"`
+	} `json:"info"`
+}
+
+// projectInfo 解析内嵌的 wails.json，字段缺失时返回对应默认值。
+func projectInfo() wailsProjectInfo {
+	var w wailsProjectInfo
+	_ = json.Unmarshal(wailsJsonContent, &w)
+	if w.Info.ProductName == "" {
+		w.Info.ProductName = "Nioh2ModManager"
+	}
+	if w.Info.ProductVersion == "" {
+		w.Info.ProductVersion = "0.0.1"
+	}
+	if w.Info.Copyright == "" {
+		w.Info.Copyright = "©shiki"
+	}
+	return w
+}
+
+// GetAbout 返回关于页信息（有序）。数据全部来自 wails.json 的 info 段，改一处即可。
 func (a *App) GetAbout() []AboutInfo {
+	pi := projectInfo()
 	return []AboutInfo{
-		{"名称", "Nioh2ModManager"},
-		{"版本", AppVersion},
-		{"作者", "©shiki"},
+		{"名称", pi.Info.ProductName},
+		{"版本", pi.Info.ProductVersion},
+		{"作者", pi.Info.Copyright},
 	}
 }
 
-// AppVersion 当前应用版本（用于检查更新对比，与打包版本保持一致）
-const AppVersion = "0.0.1"
+// AppVersion 当前应用版本（对应 wails.json 的 info.productVersion，检查更新对比用）。
+// 与打包/关于页共用同一版本号，只需修改 wails.json 一处。
+var AppVersion = projectInfo().Info.ProductVersion
 
 // UpdateInfo 检查更新结果
 type UpdateInfo struct {

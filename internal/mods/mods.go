@@ -123,6 +123,16 @@ func IsEnabled(linkPath string) bool {
 	return info.Mode()&os.ModeSymlink != 0
 }
 
+// IsActive 判断 Mod 是否已启用：普通 Mod 为符号链接，组合/HDR Mod 为真实目录。
+// 扫描对账时用此判断，避免组合 Mod 因非符号链接被误判为禁用。
+func IsActive(linkPath string) bool {
+	info, err := os.Lstat(linkPath)
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeSymlink != 0 || info.IsDir()
+}
+
 // Info Mod 信息
 type Info struct {
 	Name     string `json:"name"`
@@ -148,7 +158,7 @@ func Scan(modsRepo, gameModsDir string) ([]Info, error) {
 		list = append(list, Info{
 			Name:    name,
 			Path:    dirPath,
-			Enabled: IsEnabled(filepath.Join(gameModsDir, name)),
+			Enabled: IsActive(filepath.Join(gameModsDir, name)),
 		})
 	}
 	return list, nil

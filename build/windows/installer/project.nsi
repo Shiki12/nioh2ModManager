@@ -30,6 +30,9 @@ Unicode true
 ####
 ## !define REQUEST_EXECUTION_LEVEL "admin"            # Default "admin"  see also https://nsis.sourceforge.io/Docs/Chapter4.html
 ####
+# Custom installer / executable names (wails_tools.nsh uses !ifndef, so these win)
+!define INFO_PROJECTNAME "Nioh2ModManager"
+!define PRODUCT_EXECUTABLE "Nioh2ModManager.exe"
 ## Include the wails tools
 ####
 !include "wails_tools.nsh"
