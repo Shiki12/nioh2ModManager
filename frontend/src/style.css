@@ -1,55 +1,50 @@
-html { background-color: #ffffff; }
-body { margin: 0; padding: 0; font-family: 'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif; color: #333; }
+html { background-color: #f5f5f5; }
+body { margin: 0; padding: 0; font-family: 'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif; color: #333; background-color: #f5f5f5; }
 #app { height: 100vh; overflow: hidden; }
 
-/* ============================================================
-   Button color variants（按重要程度区分配色）
-   主要操作：蓝/绿/橙（实心、较大）
-   次要操作：青/紫/金/品红（实心）
-   危险操作：红
-   取消/兜底：中性灰蓝
-   ============================================================ */
-
-/* 主要操作 */
+/* 主要操作：蓝实心 */
 .ant-btn.btn-blue { background-color:#1a73e8 !important; border-color:#1a73e8 !important; color:#fff !important; }
-.ant-btn.btn-blue:hover, .ant-btn.btn-blue:focus { background-color:#1765c9 !important; border-color:#1765c9 !important; color:#fff !important; }
+.ant-btn.btn-blue:hover, .ant-btn.btn-blue:focus { background-color:#1568d0 !important; border-color:#1568d0 !important; color:#fff !important; }
+
+/* 次要操作（轮廓蓝） */
+.ant-btn.btn-ghost-blue { background-color:#fff !important; border-color:#1a73e8 !important; color:#1a73e8 !important; }
+.ant-btn.btn-ghost-blue:hover, .ant-btn.btn-ghost-blue:focus { background-color:#e8f1fe !important; border-color:#1a73e8 !important; color:#1a73e8 !important; }
 
 .ant-btn.btn-green { background-color:#52c41a !important; border-color:#52c41a !important; color:#fff !important; }
-.ant-btn.btn-green:hover, .ant-btn.btn-green:focus { background-color:#449d14 !important; border-color:#449d14 !important; color:#fff !important; }
+.ant-btn.btn-green:hover, .ant-btn.btn-green:focus { background-color:#49a316 !important; border-color:#49a316 !important; color:#fff !important; }
 
-.ant-btn.btn-orange { background-color:#fa8c16 !important; border-color:#fa8c16 !important; color:#fff !important; }
-.ant-btn.btn-orange:hover, .ant-btn.btn-orange:focus { background-color:#e07b13 !important; border-color:#e07b13 !important; color:#fff !important; }
-
-/* 次要操作 */
-.ant-btn.btn-cyan { background-color:#08979c !important; border-color:#08979c !important; color:#fff !important; }
-.ant-btn.btn-cyan:hover, .ant-btn.btn-cyan:focus { background-color:#078489 !important; border-color:#078489 !important; color:#fff !important; }
+.ant-btn.btn-cyan { background-color:#13c2c2 !important; border-color:#13c2c2 !important; color:#fff !important; }
+.ant-btn.btn-cyan:hover, .ant-btn.btn-cyan:focus { background-color:#0bb0b0 !important; border-color:#0bb0b0 !important; color:#fff !important; }
 
 .ant-btn.btn-purple { background-color:#722ed1 !important; border-color:#722ed1 !important; color:#fff !important; }
-.ant-btn.btn-purple:hover, .ant-btn.btn-purple:focus { background-color:#5f26b8 !important; border-color:#5f26b8 !important; color:#fff !important; }
+.ant-btn.btn-purple:hover, .ant-btn.btn-purple:focus { background-color:#6327ba !important; border-color:#6327ba !important; color:#fff !important; }
 
-.ant-btn.btn-gold { background-color:#d48806 !important; border-color:#d48806 !important; color:#fff !important; }
-.ant-btn.btn-gold:hover, .ant-btn.btn-gold:focus { background-color:#bc7505 !important; border-color:#bc7505 !important; color:#fff !important; }
+.ant-btn.btn-gold { background-color:#faad14 !important; border-color:#faad14 !important; color:#fff !important; }
+.ant-btn.btn-gold:hover, .ant-btn.btn-gold:focus { background-color:#d89614 !important; border-color:#d89614 !important; color:#fff !important; }
 
-.ant-btn.btn-magenta { background-color:#c41d7f !important; border-color:#c41d7f !important; color:#fff !important; }
-.ant-btn.btn-magenta:hover, .ant-btn.btn-magenta:focus { background-color:#a11768 !important; border-color:#a11768 !important; color:#fff !important; }
+.ant-btn.btn-magenta { background-color:#eb2f96 !important; border-color:#eb2f96 !important; color:#fff !important; }
+.ant-btn.btn-magenta:hover, .ant-btn.btn-magenta:focus { background-color:#c31e78 !important; border-color:#c31e78 !important; color:#fff !important; }
+
+.ant-btn.btn-orange { background-color:#fa8c16 !important; border-color:#fa8c16 !important; color:#fff !important; }
+.ant-btn.btn-orange:hover, .ant-btn.btn-orange:focus { background-color:#d46b08 !important; border-color:#d46b08 !important; color:#fff !important; }
 
 /* 危险操作 */
-.ant-btn.btn-red { background-color:#d9363e !important; border-color:#d9363e !important; color:#fff !important; }
-.ant-btn.btn-red:hover, .ant-btn.btn-red:focus { background-color:#c42f36 !important; border-color:#c42f36 !important; color:#fff !important; }
+.ant-btn.btn-red { background-color:#f5222d !important; border-color:#f5222d !important; color:#fff !important; }
+.ant-btn.btn-red:hover, .ant-btn.btn-red:focus { background-color:#cf1322 !important; border-color:#cf1322 !important; color:#fff !important; }
 
-/* 取消 / 兜底：中性灰蓝，弱化视觉 */
-.ant-btn.btn-cancel { background-color:#f4f6f8 !important; border-color:#cdd6e0 !important; color:#4a5b6b !important; }
-.ant-btn.btn-cancel:hover, .ant-btn.btn-cancel:focus { background-color:#e9eef3 !important; border-color:#b8c3d0 !important; color:#2f3b47 !important; }
+/* 取消 / 兜底：白底灰边，弱化视觉 */
+.ant-btn.btn-cancel { background-color:#fff !important; border-color:#d9d9d9 !important; color:#666 !important; }
+.ant-btn.btn-cancel:hover, .ant-btn.btn-cancel:focus { border-color:#1a73e8 !important; color:#1a73e8 !important; }
 
 /* Link 型文字按钮 */
-.ant-btn.btn-link-green { color:#389e0d !important; }
-.ant-btn.btn-link-green:hover, .ant-btn.btn-link-green:focus { color:#2e7d0a !important; }
+.ant-btn.btn-link-green { color:#52c41a !important; }
+.ant-btn.btn-link-green:hover, .ant-btn.btn-link-green:focus { color:#389e0d !important; }
 
-.ant-btn.btn-link-red { color:#d9363e !important; }
-.ant-btn.btn-link-red:hover, .ant-btn.btn-link-red:focus { color:#c42f36 !important; }
+.ant-btn.btn-link-red { color:#f5222d !important; }
+.ant-btn.btn-link-red:hover, .ant-btn.btn-link-red:focus { color:#cf1322 !important; }
 
 .ant-btn.btn-link-blue { color:#1a73e8 !important; }
-.ant-btn.btn-link-blue:hover, .ant-btn.btn-link-blue:focus { color:#1765c9 !important; }
+.ant-btn.btn-link-blue:hover, .ant-btn.btn-link-blue:focus { color:#0d47a1 !important; }
 
-.ant-btn.btn-link-gray { color:#a0a0a0 !important; }
-.ant-btn.btn-link-gray:hover, .ant-btn.btn-link-gray:focus { color:#666 !important; }
+.ant-btn.btn-link-gray { color:#888 !important; }
+.ant-btn.btn-link-gray:hover, .ant-btn.btn-link-gray:focus { color:#555 !important; }

@@ -1,5 +1,5 @@
 <template>
-  <a-card hoverable class="mod-card" :class="{ 'sub-card': isSub }" @click="$emit('edit', isSub ? parentMod : mod)">
+  <a-card hoverable class="mod-card" :class="{ 'sub-card': isSub, 'mod-card-enabled': mod.enabled }" @click="$emit('edit', isSub ? parentMod : mod)">
     <template #cover>
       <div class="mod-cover" :class="{ disabled: !mod.enabled }">
         <img v-if="coverSrc" :src="coverSrc" :alt="mod.nickname || mod.name" @error="onImgError" />
@@ -13,24 +13,36 @@
       </div>
     </template>
     <a-card-meta>
-      <template #title><span class="mod-title"><a-tag v-if="isSub" color="cyan" size="small">子 Mod</a-tag>{{ mod.nickname || mod.name }}</span></template>
+      <template #title>
+        <a-tooltip :title="mod.nickname || mod.name" placement="topLeft">
+          <span class="mod-title">
+            <a-tag v-if="isSub" class="tag-sub" size="small">子 Mod</a-tag>
+            <span class="mod-title-text">{{ mod.nickname || mod.name }}</span>
+          </span>
+        </a-tooltip>
+      </template>
       <template #description>
-        <div class="mod-meta">
-          <a-tag :color="mod.enabled ? 'success' : 'default'" size="small">{{ mod.enabled ? '已启用' : '已禁用' }}</a-tag>
-          <a-tag v-if="mod.submods && mod.submods.length" color="cyan" size="small">组合包 {{ mod.submods.length }} 个子 Mod</a-tag>
-          <a-tag v-if="mod.category === 'weapon'" color="purple" size="small">武器</a-tag>
-          <a-tag v-else-if="mod.category === 'mixed'" color="gold" size="small">混合</a-tag>
+        <div class="mod-tags">
+          <a-tag :class="mod.enabled ? 'tag-enabled' : 'tag-disabled'" size="small">{{ mod.enabled ? '已启用' : '已禁用' }}</a-tag>
+          <a-tag v-if="mod.submods && mod.submods.length" class="tag-type" size="small">组合包 {{ mod.submods.length }} 个子 Mod</a-tag>
+          <a-tag v-if="mod.category === 'weapon'" class="tag-type" size="small">武器</a-tag>
+          <a-tag v-else-if="mod.category === 'mixed'" class="tag-type" size="small">混合</a-tag>
           <a-tooltip v-if="conflictText" :title="conflictText">
-            <a-tag color="error" size="small">冲突</a-tag>
+            <a-tag class="tag-warning" size="small">冲突</a-tag>
           </a-tooltip>
-          <span class="mod-path" :title="mod.name">{{ mod.name }}</span>
         </div>
+        <div class="mod-folder" :title="mod.name">{{ mod.name }}</div>
         <a-tooltip v-if="armorText" :title="armorText" placement="top">
           <div class="mod-armor">占用的服装：{{ armorText }}</div>
         </a-tooltip>
         <div v-if="weapons.length" class="mod-weapons">
           <span class="mod-weapons-label">武器</span>
-          <a-tag v-for="w in weapons" :key="w" color="purple" size="small">{{ w }}</a-tag>
+          <a-tooltip :title="weapons.join('、')" placement="top">
+            <div class="mod-weapons-inner">
+              <a-tag v-for="w in weapons.slice(0, maxWeapons)" :key="w" class="tag-type" size="small">{{ w }}</a-tag>
+              <span v-if="weapons.length > maxWeapons" class="mod-weapons-more">+{{ weapons.length - maxWeapons }}</span>
+            </div>
+          </a-tooltip>
         </div>
         <div v-if="effectImages.length > 1" class="mod-thumbs" @click.stop>
           <img v-for="(img, i) in effectImages.slice(0, 6)" :key="img" :src="resolveUrl(img)" :alt="i" class="mod-thumb" @click="openPreview(i)" @error="onImgError" />
@@ -63,6 +75,7 @@ import { computed, ref } from 'vue'
 import { FileImageOutlined, EditOutlined, MinusCircleOutlined, ZoomInOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
 const props = defineProps({ mod: { type: Object, required: true }, isSub: { type: Boolean, default: false }, parentMod: { type: Object, default: null }, conflictInfo: { type: Object, default: null } })
 const emit = defineEmits(['toggle', 'toggleRefresh', 'toggleSub', 'toggleSubRefresh', 'edit'])
+const maxWeapons = 3
 const previewVisible = ref(false)
 const previewIndex = ref(0)
 const flatParts = computed(() => {
@@ -125,24 +138,43 @@ function previewNav(d) {
 </script>
 
 <style scoped>
-.mod-card { border-radius: 6px !important; overflow: hidden; transition: box-shadow .2s, transform .2s; }
-.mod-card :deep(.ant-card-body) { padding: 10px 12px !important; }
-.mod-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.10); transform: translateY(-1px); }
-.mod-cover { height: 110px; overflow: hidden; background: #e8e8e8; position: relative; }
+.mod-card { border-radius: 10px !important; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: box-shadow .2s, transform .2s; }
+.mod-card :deep(.ant-card-body) { padding: 12px 14px !important; }
+.mod-card :deep(.ant-card-cover) { border-radius: 10px 10px 0 0; overflow: hidden; }
+.mod-card :deep(.ant-card-cover img) { border-radius: 0; }
+.mod-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.10); transform: translateY(-2px); }
+/* 启用状态高亮：主题色边框 + 微光 */
+.mod-card-enabled { border-color: #1a73e8 !important; box-shadow: 0 0 0 1px rgba(26,115,232,.55), 0 0 14px rgba(26,115,232,.30) !important; }
+.mod-card-enabled:hover { box-shadow: 0 0 0 1px rgba(26,115,232,.55), 0 0 16px rgba(26,115,232,.34) !important; }
+.mod-cover { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: #e5e7eb; position: relative; }
 .mod-cover img { width: 100%; height: 100%; object-fit: cover; }
 .mod-cover-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #f5f5f5; }
 .mod-cover.disabled img { opacity: .45; filter: grayscale(100%); }
-.mod-cover-overlay { position: absolute; top: 4px; right: 4px; z-index: 2; display: flex; align-items: center; gap: 6px; }
+/* 顶部+底部渐变遮罩：保证浅色图片上标题区/控件清晰可见 */
+.mod-cover::before { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 45%; background: linear-gradient(to bottom, rgba(0,0,0,.45), transparent); pointer-events: none; z-index: 1; }
+.mod-cover::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 35%; background: linear-gradient(to top, rgba(0,0,0,.35), transparent); pointer-events: none; z-index: 1; }
+.mod-cover-overlay { position: absolute; top: 4px; right: 4px; z-index: 2; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,.35); padding: 2px 5px; border-radius: 12px; }
 .cover-zoom { color: #fff; background: rgba(0,0,0,.45); border-radius: 50%; padding: 4px; cursor: pointer; font-size: 14px; }
 .cover-zoom:hover { background: #1a73e8; }
-.mod-title { display: inline-flex; align-items: center; gap: 6px; overflow: hidden; }
-.mod-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.mod-path { font-size: 12px; color: #999; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mod-armor { margin-top: 6px; font-size: 12px; color: #1a73e8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mod-weapons { margin-top: 6px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.mod-title { display: flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; }
+.mod-title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-weight: 600; }
+/* 胶囊标签：统一高度/字号 */
+.mod-card :deep(.ant-tag) { border-radius: 999px; height: 20px; line-height: 18px; padding: 0 8px; font-size: 12px; margin-inline-end: 4px; border: none; }
+.mod-card :deep(.ant-tag.tag-enabled) { background: #e6ffed !important; color: #389e0d !important; }
+.mod-card :deep(.ant-tag.tag-disabled) { background: #f0f0f0 !important; color: #999 !important; }
+.mod-card :deep(.ant-tag.tag-type) { background: #e6f4ff !important; color: #1a73e8 !important; }
+.mod-card :deep(.ant-tag.tag-sub) { background: #e6fffb !important; color: #08979c !important; }
+.mod-card :deep(.ant-tag.tag-warning) { background: #fff1f0 !important; color: #d9363e !important; }
+.mod-tags { display: flex; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.mod-folder { margin-top: 6px; font-size: 11px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 占用服装：灰色辅助文本，最多 2 行省略（Tooltip 已绑定完整文本） */
+.mod-armor { margin-top: 6px; font-size: 12px; color: #888; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.mod-weapons { margin-top: 6px; display: flex; align-items: center; gap: 4px; }
 .mod-weapons-label { font-size: 12px; color: #999; margin-right: 2px; flex-shrink: 0; }
+.mod-weapons-inner { display: inline-flex; align-items: center; gap: 4px; flex-wrap: nowrap; overflow: hidden; min-width: 0; }
+.mod-weapons-more { font-size: 11px; color: #1a73e8; cursor: pointer; padding: 0 4px; flex-shrink: 0; }
 .mod-thumbs { margin-top: 6px; display: flex; align-items: center; gap: 4px; }
-.mod-thumb { width: 30px; height: 22px; object-fit: cover; border-radius: 3px; cursor: zoom-in; border: 1px solid #eee; }
+.mod-thumb { width: 30px; height: 22px; object-fit: cover; border-radius: 4px; cursor: zoom-in; border: 1px solid #eee; }
 .mod-thumb:hover { border-color: #1a73e8; }
 .mod-thumbs-more { font-size: 11px; color: #1a73e8; cursor: pointer; padding: 0 4px; }
 .preview-wrap { position: relative; }
@@ -154,5 +186,5 @@ function previewNav(d) {
 .preview-count { text-align: center; color: #999; font-size: 12px; margin-top: 8px; }
 .mod-card :deep(.ant-card-actions) { background: #fafafa; }
 .mod-card :deep(.ant-card-actions > li) { margin: 4px 0; }
-.mod-card :deep(.ant-card-meta-title) { font-size: 14px; margin-bottom: 4px !important; }
+.mod-card :deep(.ant-card-meta-title) { font-size: 14px; margin-bottom: 0 !important; }
 </style>

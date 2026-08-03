@@ -2039,10 +2039,9 @@ type AboutInfo struct {
 // GetAbout 返回关于页信息（有序）
 func (a *App) GetAbout() []AboutInfo {
 	return []AboutInfo{
-		{"应用名称", "仁王2 Mod 管理器"},
+		{"名称", "Nioh2ModManager"},
 		{"版本", AppVersion},
-		{"技术栈", "Go + Wails + Vue 3 + Ant Design Vue"},
-		{"作者", "© 2026 shiki"},
+		{"作者", "©shiki"},
 	}
 }
 

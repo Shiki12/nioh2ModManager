@@ -5,11 +5,25 @@
 
       <a-layout class="main-layout">
         <a-layout-header class="app-header">
-          <h2 class="page-title">{{ currentPageTitle }}</h2>
-          <a-space :size="8">
-            <a-button class="btn-cyan" @click="refreshGame"><template #icon><ReloadOutlined /></template>刷新游戏 Mod</a-button>
-            <a-button type="primary" class="btn-green" @click="launchGame"><template #icon><CaretRightOutlined /></template>启动游戏</a-button>
-          </a-space>
+          <div class="header-left">
+            <h2 class="page-title">{{ currentPageTitle }}</h2>
+          </div>
+          <div class="header-right">
+            <a-space v-if="currentPage === 'mods' || currentPage === 'library'" :size="8" class="header-actions">
+              <a-tooltip title="刷新游戏 Mod"><img :src="refreshImg" class="header-img-btn" alt="刷新游戏 Mod" @click="refreshGame" /></a-tooltip>
+              <a-tooltip title="自动安装"><img :src="installImg" class="header-img-btn" alt="自动安装" @click="installMod" /></a-tooltip>
+              <a-tooltip title="安装 HDR Mod"><img :src="installHdrImg" class="header-img-btn" :class="{ 'is-loading': installingHdr }" alt="安装 HDR Mod" @click="installHdr" /></a-tooltip>
+              <a-tooltip title="刷新列表"><img :src="refreshListImg" class="header-img-btn" alt="刷新列表" @click="refreshMods" /></a-tooltip>
+              <a-tooltip title="卡片工具"><img :src="cardToolImg" class="header-img-btn" alt="卡片工具" @click="cardToolVisible = true" /></a-tooltip>
+              <a-tooltip :title="conflictCount > 0 ? '解决冲突' : '没有冲突'">
+                <div class="conflict-img-wrap" @click="conflictVisible = true">
+                  <img :src="conflictImg" class="header-img-btn" alt="解决冲突" />
+                  <span class="conflict-badge" :class="{ 'no-conflict': conflictCount === 0 }">{{ conflictCount }}</span>
+                </div>
+              </a-tooltip>
+            </a-space>
+            <a-button type="primary" class="btn-green launch-btn" @click="launchGame"><template #icon><CaretRightOutlined /></template>启动游戏</a-button>
+          </div>
         </a-layout-header>
 
         <a-layout-content class="app-content">
@@ -22,11 +36,7 @@
             :toggleSubMod="toggleSubMod"
             :toggleSubModRefresh="toggleSubModRefresh"
             :openEditMod="openEditMod"
-            :beginImportProgress="beginImportProgress"
-            :endImportProgress="endImportProgress"
-            :refreshMods="refreshMods"
             :installMod="openInstallMod"
-            :importMod="installMod"
             :uninstallMod="uninstallMod"
             :removeRecord="removeRecord"
           />
@@ -39,13 +49,49 @@
             :saveAllSettings="saveAllSettings"
             :saveModsRepo="saveModsRepo"
           />
-          <AuthorTool v-else-if="currentPage === 'author'" />
-          <AboutPage v-else />
+          <ModLibrary
+            v-else-if="currentPage === 'library'"
+            :mods="mods"
+            :installMod="openInstallMod"
+            :uninstallMod="uninstallMod"
+            :removeRecord="removeRecord"
+            :openEditMod="openEditMod"
+          />
         </a-layout-content>
 
         <LogPanel />
       </a-layout>
     </a-layout>
+
+    <!-- 弹窗：冲突管理 -->
+    <a-modal v-model:open="conflictVisible" title="冲突管理" :footer="null" width="680px">
+      <a-empty v-if="conflictGroups.length === 0" description="当前已启用 Mod 之间没有冲突" />
+      <div v-else class="conflict-group-list">
+        <a-card v-for="(g, gi) in conflictGroups" :key="gi" size="small" class="conflict-group-card" :bordered="false">
+          <template #title>
+            <span class="conflict-group-title">冲突组 {{ gi + 1 }}（{{ g.mods.length }} 个 Mod）</span>
+          </template>
+          <div class="conflict-group-mods">
+            <span class="conflict-group-label">涉及 Mod：</span>
+            <span v-for="(m, mi) in g.mods" :key="m.name" class="conflict-group-mod">
+              <a-switch size="small" :checked="m.enabled" style="margin-right:6px" @change="() => toggleMod(m)" />
+              <b>{{ m.nickname || m.name }}</b><template v-if="mi < g.mods.length - 1">、</template>
+            </span>
+          </div>
+          <div class="conflict-group-edges">
+            <div v-for="(e, ei) in g.edges" :key="ei" class="conflict-edge">
+              「{{ nickOf(e.a) }}」与「{{ nickOf(e.b) }}」冲突：{{ e.slot }} → {{ e.value }}
+            </div>
+          </div>
+        </a-card>
+      </div>
+    </a-modal>
+
+    <!-- 弹窗：卡片工具 -->
+    <a-modal v-model:open="cardToolVisible" title="卡片工具" :footer="null" width="min(1120px, 96vw)"
+      :body-style="{ padding: '20px' }">
+      <AuthorTool />
+    </a-modal>
 
     <!-- 弹窗：安装 Mod 引擎 -->
     <a-modal :open="engineModalVisible" title="安装 Mod 引擎" :closable="false" :maskClosable="false"
@@ -184,25 +230,26 @@
     </a-modal>
 
     <!-- 弹窗：Mod 编辑 -->
-    <a-modal :open="editModVisible" title="编辑 Mod" :footer="null" :width="640" @cancel="editModVisible = false">
-      <a-form layout="vertical" v-if="editingMod">
+    <a-modal :open="editModVisible" title="编辑 Mod" :footer="null" :width="680" @cancel="editModVisible = false">
+      <a-form layout="vertical" v-if="editingMod" class="part-form">
+        <div class="form-section-title">基础信息</div>
         <a-form-item label="昵称">
           <a-input v-model:value="editNickname" placeholder="自定义显示名称" @pressEnter="saveModEdit" />
         </a-form-item>
+
+        <div class="form-section-title">图片资源</div>
         <a-form-item label="封面图片">
-          <a-space direction="vertical" style="width:100%">
-            <div class="edit-cover-box" @click="selectModCover" :title="editCover || '点击选择封面图片'">
-              <img v-if="editCoverUrl()" :src="editCoverUrl()" alt="封面预览" @error="e => e.target.style.display = 'none'" />
-              <div v-else class="edit-cover-placeholder">
-                <PictureOutlined style="font-size:28px;color:#ccc" />
-                <span>点击选择封面图</span>
-              </div>
+          <div class="img-card" @click="selectModCover" :title="editCover || '点击选择封面图片'">
+            <img v-if="editCoverUrl()" :src="editCoverUrl()" alt="封面预览" @error="e => e.target.style.display = 'none'" />
+            <div v-else class="img-card-empty">
+              <PictureOutlined />
+              <span>点击选择封面图</span>
             </div>
-            <div v-if="editCover" class="edit-cover-path">
-              <span class="edit-cover-path-text" :title="editCover">{{ editCover }}</span>
-              <a-button type="link" size="small" @click.stop="editCover = ''"><CloseOutlined /></a-button>
-            </div>
-          </a-space>
+            <a-tooltip title="移除封面">
+              <CloseOutlined v-if="editCover" class="img-card-remove" @click.stop="editCover = ''" />
+            </a-tooltip>
+          </div>
+          <div v-if="editCover" class="img-card-name" :title="editCover">{{ editCover }}</div>
         </a-form-item>
         <a-form-item label="效果图（多张）">
           <div class="preview-list">
@@ -218,9 +265,10 @@
             <a-button size="small" @click="scanModPreviews"><ReloadOutlined /> 自动扫描</a-button>
           </a-space>
         </a-form-item>
+
         <template v-if="editingMod.submods && editingMod.submods.length">
-          <a-divider style="margin:12px 0">子 Mod（组合包，共 {{ editingMod.submods.length }} 个）</a-divider>
-          <div style="color:#888;font-size:12px;margin-bottom:10px">
+          <div class="form-section-title">子 Mod（组合包，共 {{ editingMod.submods.length }} 个）</div>
+          <div class="section-tip">
             组合包由多个子 Mod 组成，每个子 Mod 各自占用一套装备资源，父级不单独占用。点击子 Mod 卡片的编辑图标可手动填写/修改其占用
           </div>
           <div class="edit-submods">
@@ -236,9 +284,10 @@
             />
           </div>
         </template>
+
         <template v-if="!isEditingComposite">
-          <a-divider style="margin:12px 0">占用装备资源</a-divider>
-          <div style="color:#888;font-size:12px;margin-bottom:10px">
+          <div class="form-section-title">装备占用配置</div>
+          <div class="section-tip">
             选择该 Mod 替换的游戏资源：可同时占用服装部位和武器，用于检测与其他 Mod 的冲突
           </div>
           <div class="parts-grid">
@@ -267,13 +316,12 @@
               />
             </div>
           </div>
-          <a-space style="margin-top:12px;display:flex;justify-content:center">
-            <a-button :loading="generatingModJson" class="btn-purple" @click="generateModJson"><FileTextOutlined /> 生成 mod.json</a-button>
-          </a-space>
         </template>
-        <a-space style="margin-top:16px;display:flex;justify-content:center;width:100%">
+
+        <a-space class="form-actions" :size="10">
+          <a-button v-if="!isEditingComposite" :loading="generatingModJson" class="btn-cancel" @click="generateModJson"><FileTextOutlined /> 生成 mod.json</a-button>
           <a-button type="primary" class="btn-blue" @click="saveModEdit">保存</a-button>
-          <a-button class="btn-cancel" @click="editModVisible = false">取消</a-button>
+          <a-button @click="editModVisible = false">取消</a-button>
         </a-space>
       </a-form>
     </a-modal>
@@ -355,14 +403,20 @@
 <script setup>
 import { ref, computed, provide, watch, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { ReloadOutlined, DownloadOutlined, FolderOpenOutlined, FileImageOutlined, CopyOutlined, LoadingOutlined, CheckCircleOutlined, CaretRightOutlined, PictureOutlined, CloseOutlined, FileTextOutlined, LeftOutlined, RightOutlined, StarOutlined } from '@ant-design/icons-vue'
+import refreshImg from './assets/images/refresh.png'
+import refreshListImg from './assets/images/refresh-list.png'
+import installImg from './assets/images/install.png'
+import installHdrImg from './assets/images/install-hdr.png'
+import conflictImg from './assets/images/conflict.png'
+import cardToolImg from './assets/images/card-tool.png'
+import { ReloadOutlined, FolderOpenOutlined, FileImageOutlined, CopyOutlined, LoadingOutlined, CheckCircleOutlined, CaretRightOutlined, PictureOutlined, CloseOutlined, FileTextOutlined, LeftOutlined, RightOutlined, StarOutlined } from '@ant-design/icons-vue'
 
-import { SelectImageFile, SetModCover, SetModNickname, CheckModEngine, InstallModEngine, GetEnginePath, OpenDirectory, GetArmorParts, GetWeaponParts, SetModParts, SetSubModParts, GenerateSubModModJson, RemoveModRecord, UninstallMod, LaunchGame, SelectDirectory, ImportMod, GetModConfig, AddModPreview, RemoveModPreview, RefreshModPreviews, GetSubModPreviews, AddSubModPreview, RemoveSubModPreview, SetSubModCover } from '../wailsjs/go/main/App'
+import { SelectImageFile, SetModCover, SetModNickname, CheckModEngine, InstallModEngine, GetEnginePath, OpenDirectory, GetArmorParts, GetWeaponParts, SetModParts, SetSubModParts, GenerateSubModModJson, RemoveModRecord, UninstallMod, LaunchGame, SelectDirectory, ImportMod, GetModConfig, AddModPreview, RemoveModPreview, RefreshModPreviews, GetSubModPreviews, AddSubModPreview, RemoveSubModPreview, SetSubModCover, InstallHdrMod } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import AppSider from './components/AppSider.vue'
 import ModsPage from './components/ModsPage.vue'
+import ModLibrary from './components/ModLibrary.vue'
 import SettingsPage from './components/SettingsPage.vue'
-import AboutPage from './components/AboutPage.vue'
 import AuthorTool from './components/AuthorTool.vue'
 import LogPanel from './components/LogPanel.vue'
 import ModCard from './components/ModCard.vue'
@@ -371,13 +425,12 @@ import { useLogger } from './composables/useLogger.js'
 import { useModData } from './composables/useModData.js'
 import { useModOperations } from './composables/useModOperations.js'
 
-// ---- 主题 ----
+// ---- 主题（暗色科技风） ----
 const themeConfig = {
   token: {
-    colorPrimary: '#1a73e8', colorLink: '#1a73e8', borderRadius: 4,
+    colorPrimary: '#1a73e8', colorInfo: '#1a73e8', colorLink: '#1a73e8',
+    borderRadius: 6,
     fontFamily: "'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif",
-    colorBgBase: '#ffffff', colorBgContainer: '#ffffff', colorBgLayout: '#ffffff',
-    colorBorder: '#e0e0e0', colorBorderSecondary: '#eeeeee',
   },
 }
 
@@ -385,9 +438,8 @@ const themeConfig = {
 const currentPage = ref('mods')
 const navItems = [
   { key: 'mods', label: 'Mod 管理' },
-  { key: 'author', label: '作者工具' },
+  { key: 'library', label: 'Mod 库' },
   { key: 'settings', label: '设置' },
-  { key: 'about', label: '关于' },
 ]
 const currentPageTitle = computed(() => navItems.find(i => i.key === currentPage.value)?.label ?? '')
 
@@ -460,6 +512,55 @@ const {
 // 启动后加载一次冲突检测结果（数据文件已在后端加载）
 onMounted(() => { loadConflicts() })
 
+// ---- 冲突解决 ----
+const conflictVisible = ref(false)
+const cardToolVisible = ref(false)
+const conflictCount = computed(() => (conflicts?.length || 0))
+const conflictNameToMod = computed(() => {
+  const map = {}
+  for (const m of mods || []) map[m.name] = m
+  return map
+})
+function nickOf(name) {
+  const m = conflictNameToMod.value[name]
+  return m?.nickname || name
+}
+const conflictGroups = computed(() => {
+  const parent = {}
+  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x] } return x }
+  const union = (a, b) => { parent[find(a)] = find(b) }
+  const ensure = (name) => { if (!(name in parent)) parent[name] = name }
+  const rawEdges = []
+  for (const info of conflicts || []) {
+    ensure(info.modName)
+    for (const c of info.conflicts || []) {
+      ensure(c.modName)
+      union(info.modName, c.modName)
+      rawEdges.push({ a: info.modName, b: c.modName, slot: c.slot, value: c.value })
+    }
+  }
+  const seen = new Set()
+  const edges = []
+  for (const e of rawEdges) {
+    const key = [e.a, e.b].sort().join('\u0000') + '|' + e.slot + '|' + e.value
+    if (seen.has(key)) continue
+    seen.add(key)
+    edges.push(e)
+  }
+  const groups = {}
+  const order = []
+  for (const name in parent) {
+    const r = find(name)
+    if (!groups[r]) { groups[r] = { mods: [], edges: [] }; order.push(r) }
+    groups[r].mods.push(name)
+  }
+  for (const e of edges) groups[find(e.a)].edges.push(e)
+  return order.map(r => ({
+    mods: groups[r].mods.map(name => conflictNameToMod.value[name]).filter(Boolean),
+    edges: groups[r].edges,
+  }))
+})
+
 // 打开 Mod 托管目录弹窗时自动核对游戏目录（带加载动画）
 watch(() => needModsRepoSetup.value && !needSetup.value, (open) => { if (open) detectGameRootForConfirm() }, { immediate: true })
 
@@ -469,6 +570,26 @@ async function launchGame() {
     await LaunchGame()
     await refreshLogs()
   } catch (_) { await refreshLogs() }
+}
+
+// ---- 安装 HDR Mod（顶部工具栏） ----
+const installingHdr = ref(false)
+async function installHdr() {
+  let dir
+  try { dir = await SelectDirectory() } catch (e) { addLog(`选择目录失败: ${e}`); return }
+  if (!dir) return
+  installingHdr.value = true
+  beginImportProgress()
+  try {
+    const res = await InstallHdrMod(dir)
+    message.success(`已安装 HDR 合集「${res.nickname || res.name}」（${res.submods?.length || 0} 个子 Mod）`)
+    await refreshMods()
+  } catch (e) {
+    message.error(String(e))
+  } finally {
+    endImportProgress()
+    installingHdr.value = false
+  }
 }
 
 // ---- 自动安装 Mod ----
@@ -940,21 +1061,45 @@ async function saveModEdit() {
 }
 </script>
 
-<style>html, body { background: #fff; margin:0; padding:0; }</style>
+<style>html, body { background: #f5f5f5; margin:0; padding:0; }</style>
 
 <style scoped>
-.app-layout { height: 100vh; overflow: hidden; font-family: 'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif; }
-.main-layout { background: #fff !important; }
-.app-header { display: flex; align-items: center; justify-content: space-between; height: 48px !important; line-height: 48px !important; padding: 0 24px !important; background: #ffffff !important; border-bottom: 1px solid #e8e8e8; }
-.page-title { margin: 0; font-size: 16px; font-weight: 600; color: #333; }
-.app-content { flex: 1; overflow-y: auto; background: #fafafa; }
+.app-layout { height: 100vh; overflow: hidden; font-family: 'Segoe UI','Microsoft YaHei','PingFang SC',sans-serif; background: #f5f5f5; }
+.main-layout { background: #f5f5f5 !important; }
+.app-header { display: flex; align-items: center; justify-content: space-between; height: 56px !important; line-height: 56px !important; padding: 0 16px !important; background: #fff !important; border-bottom: 1px solid #f0f0f0; }
+.page-title { margin: 0; font-size: 17px; font-weight: 600; color: #333; flex-shrink: 0; }
+.header-left { display: flex; align-items: center; gap: 24px; min-width: 0; overflow: hidden; }
+.header-right { display: flex; align-items: center; gap: 16px; }
+.header-actions { display: flex; align-items: center; white-space: nowrap; }
+.header-icon { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; color: #555; font-size: 16px; cursor: pointer; vertical-align: middle; transition: color .15s, background .15s; }
+.header-icon:hover { color: #1a73e8; background: #e8f1fe; }
+.header-icon.is-loading { color: #1a73e8; }
+.header-img-btn { display: block; width: 44px; height: 44px; padding: 7px; box-sizing: border-box; object-fit: contain; background: #f5f5f5; border-radius: 9px; cursor: pointer; transition: transform .15s, background .15s, box-shadow .15s; }
+.header-img-btn:hover { transform: scale(1.08); background: #e8f1fe; box-shadow: 0 0 0 2px rgba(26,115,232,.18); }
+.header-img-btn.is-loading { opacity: .5; }
+.launch-btn { flex-shrink: 0; margin-left: 16px; height: 44px; padding: 0 20px; font-size: 16px; display: inline-flex; align-items: center; gap: 6px; }
+.conflict-img-wrap { position: relative; cursor: pointer; }
+.conflict-badge { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; line-height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #f5222d; color: #fff; font-size: 12px; font-weight: 600; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.3); z-index: 2; }
+.conflict-badge.no-conflict { background: #9ca3af; }
+.conflict-group-list { display: flex; flex-direction: column; gap: 12px; }
+.conflict-group-card { background: #fff7f0; border: 1px solid #ffd8bf; border-radius: 8px; }
+.conflict-group-card :deep(.ant-card-head) { border-bottom: 1px dashed #ffd8bf; }
+.conflict-group-title { color: #d4380d; font-weight: 600; }
+.conflict-group-mods { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px; line-height: 2; }
+.conflict-group-label { color: #888; font-size: 12px; }
+.conflict-group-mod { display: inline-flex; align-items: center; }
+.conflict-group-mod b { color: #333; }
+.conflict-group-edges { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #ffd8bf; }
+.conflict-edge { line-height: 1.9; color: #d4380d; font-size: 13px; }
+.launch-btn { flex-shrink: 0; margin-left: 16px; height: 40px; padding: 0 18px; font-size: 15px; display: inline-flex; align-items: center; gap: 6px; }
+.app-content { flex: 1; overflow-y: auto; background: #f5f5f5; }
 .app-content > :deep(.page) { padding: 20px 24px; animation: fadeIn .2s ease; }
-.engine-mode { width: 100%; padding: 10px 12px; border: 1px solid #e8e8e8; border-radius: 4px; background: #fafafa; }
+.engine-mode { width: 100%; padding: 10px 12px; border: 1px solid #d9d9d9; border-radius: 8px; background: #fff; }
 .engine-mode-title { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 4px; }
 .engine-mode-manual { border-style: dashed; }
 .parts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
 .edit-submods { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
-.edit-cover-box { width: 80px; height: 80px; border: 1px dashed #d9d9d9; border-radius: 6px; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; background: #fafafa; }
+.edit-cover-box { width: 80px; height: 80px; border: 1px dashed #d9d9d9; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; background: #fafafa; }
 .edit-cover-box:hover { border-color: #1a73e8; }
 .edit-cover-box img { width: 100%; height: 100%; object-fit: cover; }
 .edit-cover-placeholder { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #999; font-size: 11px; }
@@ -962,39 +1107,60 @@ async function saveModEdit() {
 .edit-cover-path { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #888; max-width: 100%; }
 .edit-cover-path-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preview-list { display: flex; flex-wrap: wrap; gap: 8px; }
-.preview-item { position: relative; width: 72px; height: 72px; border-radius: 4px; overflow: hidden; border: 1px solid #e8e8e8; cursor: zoom-in; }
+.preview-item { position: relative; width: 72px; height: 72px; border-radius: 8px; overflow: hidden; border: 1px solid #d9d9d9; cursor: zoom-in; }
 .preview-item:hover { border-color: #1a73e8; }
 .preview-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.preview-item-cover { position: absolute; bottom: 2px; left: 2px; color: #fff; background: rgba(0,0,0,.5); border-radius: 50%; padding: 2px; font-size: 11px; cursor: pointer; }
+.preview-item-cover { position: absolute; bottom: 3px; left: 3px; color: #fff; background: rgba(0,0,0,.5); width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 10px; cursor: pointer; z-index: 1; }
 .preview-item-cover:hover { background: #faad14; }
 .preview-item-cover.active { background: #faad14; color: #fff; }
-.preview-item-remove { position: absolute; top: 2px; right: 2px; color: #fff; background: rgba(0,0,0,.5); border-radius: 50%; padding: 2px; font-size: 11px; cursor: pointer; }
-.preview-item-remove:hover { background: #ff4d4f; }
-.preview-empty { width: 100%; padding: 10px 0; font-size: 12px; color: #999; border: 1px dashed #e8e8e8; border-radius: 4px; text-align: center; }
+/* X 删除按钮：深色半透明小圆底，白色 X，悬浮右上角，hover 高亮 */
+.preview-item-remove { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; border-radius: 50%; font-size: 10px; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.25); z-index: 1; }
+.preview-item-remove:hover { background: #f5222d; color: #fff; }
+.preview-empty { width: 100%; padding: 10px 0; font-size: 12px; color: #999; border: 1px dashed #d9d9d9; border-radius: 8px; text-align: center; }
 .sub-cover-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
 .sub-cover-tip { flex: 1; font-size: 12px; color: #888; line-height: 1.6; }
 .preview-wrap { position: relative; }
 .preview-img { width: 100%; display: block; }
-.preview-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; border-color: rgba(0,0,0,.2); background: rgba(0,0,0,.45); color: #fff; }
+.preview-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 2; border-color: rgba(255,255,255,.2); background: rgba(0,0,0,.5); color: #fff; }
 .preview-nav:hover { background: #1a73e8; color: #fff; }
 .preview-nav.prev { left: 8px; }
 .preview-nav.next { right: 8px; }
-.preview-count { text-align: center; color: #999; font-size: 12px; margin-top: 8px; }
+.preview-count { text-align: center; color: #888; font-size: 12px; margin-top: 8px; }
 .category-radio { margin-bottom: 4px; }
 .category-radio .ant-radio-button-wrapper { font-size: 12px; }
-.parts-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.parts-tag { width: 40px; text-align: center; margin-inline-end: 0; flex-shrink: 0; }
-.parts-select { flex: 1; }
+.parts-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 16px; }
+.parts-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.parts-tag { width: 44px; text-align: center; margin-inline-end: 0; flex-shrink: 0; }
+.parts-select { flex: 1 1 0; min-width: 0; max-width: 100%; }
+/* 弹窗分组标题：左侧加粗，下方微弱分割线 */
+.form-section-title { font-size: 15px; font-weight: 600; color: #333; padding-bottom: 10px; margin: 22px 0 16px; border-bottom: 1px solid #f0f0f0; }
+.section-tip { color: #888; font-size: 12px; margin-bottom: 10px; }
+.form-actions { display: flex; justify-content: flex-end; width: 100%; margin-top: 26px; margin-bottom: 2px; }
+/* 封面/效果图图片卡片 */
+.img-card { position: relative; width: 84px; height: 84px; border-radius: 8px; overflow: hidden; border: 1px solid #d9d9d9; cursor: pointer; background: #fafafa; }
+.img-card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.img-card-empty { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #999; font-size: 12px; }
+.img-card-empty .anticon { font-size: 22px; color: #999; }
+.img-card-remove { position: absolute; top: 4px; right: 4px; width: 16px; height: 16px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); color: #fff; border-radius: 50%; font-size: 10px; cursor: pointer; z-index: 1; }
+.img-card-remove:hover { background: #f5222d; }
+.img-card-name { margin-top: 8px; font-size: 12px; color: #888; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+/* 表单留白：标签↔输入、区块↔区块 上下间距 */
+.part-form :deep(.ant-form-item) { margin-bottom: 22px; }
+.part-form :deep(.ant-form-item-label) { padding-bottom: 6px; }
+.part-form :deep(.ant-form-item-label > label) { font-weight: 500; color: #333; }
+/* 装备下拉框统一高度（含 Weapon 多选标签输入框） */
+.part-form :deep(.parts-select .ant-select-selector) { height: 32px; align-items: center; }
+.part-form :deep(.ant-select-multiple .ant-select-selector) { height: 32px; align-items: center; overflow: hidden; }
 .install-mod-name { font-weight: 600; color: #333; word-break: break-all; }
-.detect-panel { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid #e8e8e8; border-radius: 4px; background: #fafafa; }
-.recognize-panel { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid #b7d8ff; border-radius: 4px; background: #f0f7ff; color: #1a73e8; font-size: 13px; }
+.detect-panel { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border: 1px solid #d9d9d9; border-radius: 8px; background: #fff; }
+.recognize-panel { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border: 1px solid #91caff; border-radius: 8px; background: #e6f4ff; color: #0958d9; font-size: 13px; }
 .recognize-icon { font-size: 16px; }
-.detect-loading { align-items: center; color: #555; }
+.detect-loading { align-items: center; color: #888; }
 .detect-icon { font-size: 20px; color: #1a73e8; }
 .detect-icon-ok { color: #52c41a; }
 .detect-result { flex: 1; }
 .detect-result-title { font-weight: 600; color: #333; }
-.detect-path { font-size: 13px; color: #555; word-break: break-all; margin-top: 4px; }
+.detect-path { font-size: 13px; color: #888; word-break: break-all; margin-top: 4px; }
 .detect-ok { border-color: #b7eb8f; background: #f6ffed; }
 .fade-enter-active, .fade-leave-active { transition: opacity .25s ease, transform .25s ease; }
 .fade-enter-from { opacity: 0; transform: translateY(6px); }
