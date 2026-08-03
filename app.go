@@ -2046,7 +2046,7 @@ func (a *App) GetAbout() []AboutInfo {
 }
 
 // AppVersion 当前应用版本（用于检查更新对比，与打包版本保持一致）
-const AppVersion = "0.1.2"
+const AppVersion = "0.0.1"
 
 // UpdateInfo 检查更新结果
 type UpdateInfo struct {

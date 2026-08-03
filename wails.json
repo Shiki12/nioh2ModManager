@@ -9,5 +9,11 @@
   "author": {
     "name": "主机",
     "email": "wxz.com"
+  },
+  "info": {
+    "productName": "nioh2ModManager",
+    "productVersion": "0.0.1",
+    "copyright": "©shiki",
+    "comments": "Built using Wails"
   }
 }
