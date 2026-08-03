@@ -1,0 +1,25 @@
+# wails 编译输出（含打包 exe 与本地用户数据 modman_config.json/modman_data.json/parts.json/modman.log）
+build/bin
+
+# NSIS 打包时临时下载的 WebView2 引导程序
+build/windows/installer/tmp
+
+# 前端依赖与构建产物
+node_modules
+frontend/dist
+
+# wails generate 生成的绑定缓存
+frontend/package.json.md5
+
+# 备份文件（如 appicon-bak.png、icon.ico.bak）
+*.bak
+
+# 可执行文件与日志
+*.exe
+*.log
+
+# 编辑器与系统杂项
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
