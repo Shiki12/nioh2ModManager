@@ -59,12 +59,12 @@ const columns = [
   { title: '操作', key: 'action', width: 130 },
 ]
 
-const tablePagination = {
-  pageSize: 10,
+const tablePagination = ref({
+  pageSize: 5,
   showSizeChanger: true,
-  pageSizeOptions: ['10', '20', '50'],
+  pageSizeOptions: ['5', '10', '20'],
   showTotal: (total) => `共 ${total} 个 Mod`,
-}
+})
 </script>
 
 <style scoped>

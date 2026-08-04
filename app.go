@@ -1597,10 +1597,18 @@ func (a *App) UninstallMod(modName string) error {
 
 // RemoveModRecord 清除 Mod 记录（物理删除记录），同时移除残留的符号链接。
 // 仅用于磁盘上已缺失（文件已被删除）的 mod 清理记录。
+// 普通 Mod 为符号链接，组合/HDR Mod 为游戏 Mods 目录下的真实目录（内含各子 Mod 软链），
+// 两者都要整体移除，否则组合 Mod 会在游戏目录留下孤儿父目录与子 Mod 软链。
 func (a *App) RemoveModRecord(modName string) error {
-	if link := modLinkPath(a.cfg, modName); mods.IsEnabled(link) {
-		if err := mods.Disable(link); err != nil {
-			a.log("清除 Mod 记录时移除符号链接失败: " + err.Error())
+	if link := modLinkPath(a.cfg, modName); mods.IsActive(link) {
+		var err error
+		if info, e := os.Lstat(link); e == nil && info.Mode()&os.ModeSymlink == 0 {
+			err = mods.DisableComposite(link)
+		} else {
+			err = mods.Disable(link)
+		}
+		if err != nil {
+			a.log("清除 Mod 记录时移除残留失败: " + err.Error())
 		}
 	}
 	a.modData.Remove(modName)

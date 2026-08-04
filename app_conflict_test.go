@@ -1,10 +1,12 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
 	"nioh2mod-js/internal/config"
+	"nioh2mod-js/internal/mods"
 )
 
 // setLocksPath 为测试隔离全局占用锁文件路径
@@ -161,5 +163,136 @@ func TestCheckAllModConflictsDifferentResourceNoConflict(t *testing.T) {
 	})
 	if res := (&App{modData: &config.ModData{}}).CheckAllModConflicts(); len(res) != 0 {
 		t.Fatalf("不同资源不应冲突: %+v", res)
+	}
+}
+
+// 回归：卸载 HDR 组合包（含已启用子 Mod）时，游戏 Mods 目录下的组合父目录
+// （内含 meshes/textures 与各子 Mod 软链）必须整体移除，不允许残留子 Mod 软链；
+// 数据父级回到未启用未安装、子 Mod 全部关闭，全局锁文件清除该 Mod 占用。
+func TestUninstallModCompositeRemovesSubModLinks(t *testing.T) {
+	setLocksPath(t)
+	gameRoot := t.TempDir()
+	repo := t.TempDir()
+	parentDir := filepath.Join(repo, "09_HDR")
+
+	// 构造合集源目录（含公共 meshes/textures 与两个子 Mod）
+	mkdir(t, filepath.Join(parentDir, "meshes"))
+	writeFile(t, filepath.Join(parentDir, "meshes", "a.bin"), "x")
+	mkdir(t, filepath.Join(parentDir, "textures"))
+	mkdir(t, filepath.Join(parentDir, "01_[A]"))
+	writeFile(t, filepath.Join(parentDir, "01_[A]", "mod.ini"), "[mod]\n")
+	mkdir(t, filepath.Join(parentDir, "02_[B]"))
+	writeFile(t, filepath.Join(parentDir, "02_[B]", "mod.ini"), "[mod]\n")
+
+	// 校验当前环境能否创建符号链接，否则跳过
+	probe := filepath.Join(repo, "probe")
+	if err := os.Symlink(parentDir, probe); err != nil {
+		t.Skipf("当前环境无法创建符号链接（需管理员或开发者模式）: %v", err)
+	}
+	os.Remove(probe)
+
+	app := &App{
+		cfg:     &config.App{GameRoot: gameRoot, ModsRepo: repo},
+		logData: &config.LogData{},
+		modData: &config.ModData{Mods: []config.ModInfo{{
+			Name: "09_HDR", Installed: true, Enabled: true, Path: parentDir,
+			SubMods: []config.SubModInfo{
+				{Name: "01_[A]", Enabled: true, Parts: map[string][]string{"胸甲": {"上古之衣-上衣"}}},
+				{Name: "02_[B]", Enabled: true, Parts: map[string][]string{"膝甲": {"无缘人之铠-膝甲"}}},
+			},
+		}}},
+	}
+
+	link := modLinkPath(app.cfg, "09_HDR")
+	// 模拟组合包已启用：父目录 + 公共链接 + 两个已启用子 Mod 软链
+	if err := mods.EnableComposite(parentDir, link, []string{"meshes", "textures"}, []string{"01_[A]", "02_[B]"}); err != nil {
+		t.Fatalf("EnableComposite 失败: %v", err)
+	}
+	// 父级占用写入锁文件
+	app.syncLock("09_HDR")
+	if _, ok := readLocks()["09_HDR"]; !ok {
+		t.Fatal("卸载前 09_HDR 应已在锁文件中")
+	}
+
+	if err := app.UninstallMod("09_HDR"); err != nil {
+		t.Fatalf("UninstallMod 失败: %v", err)
+	}
+
+	// 1) 组合父目录（含全部子 Mod 软链）应已整体移除，无残留软链
+	if _, err := os.Lstat(link); err == nil {
+		t.Fatal("卸载后组合父目录应已移除（含子 Mod 软链）")
+	}
+	for _, sm := range []string{"meshes", "textures", "01_[A]", "02_[B]"} {
+		if _, err := os.Lstat(filepath.Join(link, sm)); err == nil {
+			t.Fatalf("卸载后不应残留软链: %s", sm)
+		}
+	}
+	// 2) 数据：父级未启用未安装、子 Mod 全部关闭（记录仍保留）
+	md := app.modData.Find("09_HDR")
+	if md == nil {
+		t.Fatal("卸载后记录应保留")
+	}
+	if md.Enabled || md.Installed {
+		t.Fatalf("卸载后父级应为未启用未安装: %+v", md)
+	}
+	for _, sm := range md.SubMods {
+		if sm.Enabled {
+			t.Fatalf("子 Mod %s 应已关闭", sm.Name)
+		}
+	}
+	// 3) 全局锁文件已清除该 Mod 占用
+	if _, ok := readLocks()["09_HDR"]; ok {
+		t.Fatal("卸载后锁文件应清除该 Mod 占用")
+	}
+}
+
+// 回归：清除组合 Mod 记录时，游戏 Mods 目录下启用的组合真实目录（含子 Mod 软链）
+// 也必须整体移除，避免留下孤儿目录与子 Mod 软链。
+func TestRemoveModRecordCompositeCleansGameModsDir(t *testing.T) {
+	setLocksPath(t)
+	gameRoot := t.TempDir()
+	repo := t.TempDir()
+	parentDir := filepath.Join(repo, "09_HDR")
+
+	mkdir(t, filepath.Join(parentDir, "meshes"))
+	writeFile(t, filepath.Join(parentDir, "meshes", "a.bin"), "x")
+	mkdir(t, filepath.Join(parentDir, "textures"))
+	mkdir(t, filepath.Join(parentDir, "01_[A]"))
+	writeFile(t, filepath.Join(parentDir, "01_[A]", "mod.ini"), "[mod]\n")
+
+	probe := filepath.Join(repo, "probe")
+	if err := os.Symlink(parentDir, probe); err != nil {
+		t.Skipf("当前环境无法创建符号链接: %v", err)
+	}
+	os.Remove(probe)
+
+	app := &App{
+		cfg:     &config.App{GameRoot: gameRoot, ModsRepo: repo},
+		logData: &config.LogData{},
+		modData: &config.ModData{Mods: []config.ModInfo{{
+			Name: "09_HDR", Installed: true, Enabled: true, Path: parentDir, Missing: true,
+			SubMods: []config.SubModInfo{{Name: "01_[A]", Enabled: true, Parts: map[string][]string{"胸甲": {"上古之衣-上衣"}}}},
+		}}},
+	}
+
+	link := modLinkPath(app.cfg, "09_HDR")
+	if err := mods.EnableComposite(parentDir, link, []string{"meshes", "textures"}, []string{"01_[A]"}); err != nil {
+		t.Fatalf("EnableComposite 失败: %v", err)
+	}
+
+	if err := app.RemoveModRecord("09_HDR"); err != nil {
+		t.Fatalf("RemoveModRecord 失败: %v", err)
+	}
+
+	if _, err := os.Lstat(link); err == nil {
+		t.Fatal("清除记录后组合父目录应已整体移除（含子 Mod 软链）")
+	}
+	for _, sm := range []string{"meshes", "textures", "01_[A]"} {
+		if _, err := os.Lstat(filepath.Join(link, sm)); err == nil {
+			t.Fatalf("不应残留软链: %s", sm)
+		}
+	}
+	if app.modData.Find("09_HDR") != nil {
+		t.Fatal("清除记录后数据仓库应无该记录")
 	}
 }

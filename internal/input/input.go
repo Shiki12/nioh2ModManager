@@ -22,10 +22,9 @@ var (
 )
 
 const (
-	VK_F2       = 0x71
-	VK_F10      = 0x79
-	VK_MENU     = 0x12
-	SW_RESTORE  = 9
+	VK_F10  = 0x79
+	VK_MENU = 0x12
+	SW_RESTORE = 9
 )
 
 // BringToForeground 尽可能把目标窗口带到前台：
@@ -53,9 +52,6 @@ func SendKey(hwnd uintptr, vk uintptr) {
 	time.Sleep(150 * time.Millisecond)
 	procKeybdEvent.Call(vk, 0, 2, 0)
 }
-
-// SendF2 向指定窗口句柄发送 F2
-func SendF2(hwnd uintptr) { SendKey(hwnd, VK_F2) }
 
 // SendF10 向指定窗口句柄发送 F10
 func SendF10(hwnd uintptr) { SendKey(hwnd, VK_F10) }
@@ -86,8 +82,9 @@ func FindGameWindow(titles []string) uintptr {
 	return found
 }
 
-// RefreshMods 刷新游戏内 Mod：
-// 先把游戏窗口带到前台并等待其恢复渲染，再依次发送 F10（载入/重新加载 Mod）、F2（开启）。
+// RefreshMods 刷新游戏内 Mod（纯重载，不切换 Mod 引擎开关）：
+// 先把游戏窗口带到前台并等待其恢复渲染，再发送 F10 重新加载 Mod 文件。
+// 注意：F2 是引擎的“切换”键，会翻转 $mods 开关，故刷新只发 F10 以避免误关。
 // 返回是否找到游戏窗口。
 func RefreshMods() bool {
 	hwnd := FindGameWindow([]string{"Nioh2 1.28.08", "Nioh2 1.28", "Nioh2"})
@@ -98,6 +95,5 @@ func RefreshMods() bool {
 	time.Sleep(900 * time.Millisecond)
 	SendF10(hwnd)
 	time.Sleep(600 * time.Millisecond)
-	SendF2(hwnd)
 	return true
 }
