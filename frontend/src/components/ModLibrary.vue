@@ -60,16 +60,25 @@ const columns = [
 ]
 
 const tablePagination = ref({
+  current: 1,
   pageSize: 5,
   showSizeChanger: true,
   pageSizeOptions: ['5', '10', '20'],
   showTotal: (total) => `共 ${total} 个 Mod`,
+  onChange: (page, size) => {
+    tablePagination.value.current = page
+    tablePagination.value.pageSize = size
+  },
+  onShowSizeChange: (cur, size) => {
+    tablePagination.value.pageSize = size
+    tablePagination.value.current = cur
+  },
 })
 </script>
 
 <style scoped>
 .lib-search { max-width: 320px; margin-bottom: 12px; }
-.lib-table :deep(.ant-table) { border-radius: 6px; overflow: hidden; }
+.lib-table :deep(.ant-table) { border-radius: 6px; }
 .lib-table :deep(.ant-table-thead > tr > th) { background: #fafafa; color: #666; font-weight: 600; }
 .lib-table :deep(.ant-table-tbody > tr:hover > td) { background: #f6f9ff; }
 .mod-name-cell { display: inline-flex; align-items: center; gap: 8px; max-width: 100%; }
