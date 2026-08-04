@@ -595,6 +595,16 @@ func (a *App) ImportMod(folder string) (*ImportResult, error) {
 	// 识别该 Mod 占用的资源（服装部位 / 武器）与封面图
 	a.emitModProgress(3, 3, "正在识别该 Mod 占用的服装/武器资源…")
 	nickname, category, cover, previews, parts, submods, found := a.readModConfig(dest)
+	// HDR 合集自动识别：目录含公共 meshes/textures 但未登记子 Mod 时，
+	// 自动识别子 Mod 并生成 mod.json，保证组合包始终以组合形式登记/安装
+	if len(submods) == 0 {
+		if _, ok, cerr := a.ensureCompositeConfig(dest, name); cerr != nil {
+			a.log("识别 HDR 合集失败: " + cerr.Error())
+		} else if ok {
+			nickname, category, cover, previews, parts, submods, found = a.readModConfig(dest)
+			found = true
+		}
+	}
 	if nickname != "" {
 		a.modData.SetNickname(name, nickname)
 	}
@@ -609,11 +619,7 @@ func (a *App) ImportMod(folder string) (*ImportResult, error) {
 	}
 	// 组合 Mod（HDR 合集等）：按子 Mod 分别登记（父级本身不占用），Parts 存并集供冲突检测/展示
 	if len(submods) > 0 {
-		subInfos := make([]config.SubModInfo, 0, len(submods))
-		for _, sm := range submods {
-			subInfos = append(subInfos, config.SubModInfo{Name: sm.Name, Parts: sm.Parts, Cover: sm.Cover, Preview: sm.Previews})
-		}
-		a.modData.SetSubMods(name, subInfos)
+		a.registerSubMods(name, submods)
 		md := a.modData.Find(name)
 		if md != nil {
 			parts = md.Parts
@@ -640,27 +646,11 @@ func (a *App) InstallHdrMod(folder string) (*ImportResult, error) {
 		return nil, err
 	}
 	a.emitModProgress(1, 3, "正在识别 HDR 合集并生成 mod.json…")
-	if _, err := os.Stat(filepath.Join(folder, "mod.json")); err != nil {
-		cfg, pending, warn := a.recognizeComposite(folder, filepath.Base(strings.TrimRight(folder, `\/`)))
-		if warn != "" {
-			err = fmt.Errorf("识别合集失败: %s", warn)
-			a.emitModProgress(1, 3, "识别 HDR 合集失败: "+warn)
-			a.log("安装 HDR 合集失败: " + err.Error())
-			return nil, err
-		}
-		data, err := json.MarshalIndent(cfg, "", "  ")
-		if err != nil {
-			a.log("安装 HDR 合集失败: " + err.Error())
-			return nil, err
-		}
-		if err := os.WriteFile(filepath.Join(folder, "mod.json"), data, 0644); err != nil {
-			a.log("安装 HDR 合集失败: 写入 mod.json 失败: " + err.Error())
-			return nil, err
-		}
-		a.log("安装 HDR 合集已生成 mod.json: " + folder)
-		if len(pending) > 0 {
-			a.log("安装 HDR 合集存在待确认占用项: " + folder)
-		}
+	if _, _, cerr := a.ensureCompositeConfig(folder, filepath.Base(strings.TrimRight(folder, `\/`))); cerr != nil {
+		err = cerr
+		a.emitModProgress(1, 3, "识别 HDR 合集失败: "+cerr.Error())
+		a.log("安装 HDR 合集失败: " + err.Error())
+		return nil, err
 	}
 	res, err := a.ImportMod(folder)
 	if err != nil {
@@ -689,6 +679,19 @@ func (a *App) GetModConfig(modName string) (*ImportResult, error) {
 		return nil, fmt.Errorf("Mod 文件夹不存在: %s", modName)
 	}
 	nickname, category, cover, previews, parts, submods, found := a.readModConfig(dir)
+	// HDR 合集自动识别并登记：重装/编辑场景下数据记录可能缺失子 Mod，
+	// 若目录为合集（含公共 meshes/textures）则自动识别并写入子 Mod，保证以组合包形式展示
+	if len(submods) == 0 {
+		if _, ok, cerr := a.ensureCompositeConfig(dir, modName); cerr != nil {
+			a.log("识别 HDR 合集失败: " + cerr.Error())
+		} else if ok {
+			nickname, category, cover, previews, parts, submods, found = a.readModConfig(dir)
+			found = true
+			if len(submods) > 0 {
+				a.registerSubMods(modName, submods)
+			}
+		}
+	}
 	return &ImportResult{Name: modName, Nickname: nickname, Category: category, Cover: cover, Previews: previews, Parts: parts, SubMods: submods, ConfigFound: found}, nil
 }
 
@@ -1165,6 +1168,50 @@ func hasSubDir(base, name string) bool {
 	return err == nil && info.IsDir()
 }
 
+// ensureCompositeConfig 检测目录是否为 HDR 合集（含公共 meshes/textures 子目录）。
+// mod.json 缺失或未含子 Mod 时，自动识别子 Mod 并写入 mod.json。
+// 返回是否识别为合集；非合集返回 (nil, false, nil)，识别失败返回错误。
+func (a *App) ensureCompositeConfig(dir, name string) (*modConfig, bool, error) {
+	if !hasSubDir(dir, "meshes") || !hasSubDir(dir, "textures") {
+		return nil, false, nil
+	}
+	if _, err := os.Stat(filepath.Join(dir, "mod.json")); err == nil {
+		// 已有 mod.json：仅当其中已含子 Mod 时视为已识别，否则继续自动识别
+		_, _, _, _, _, submods, _ := a.readModConfig(dir)
+		if len(submods) > 0 {
+			return nil, true, nil
+		}
+	}
+	cfg, pending, warn := a.recognizeComposite(dir, name)
+	if warn != "" {
+		return nil, false, fmt.Errorf("识别合集失败: %s", warn)
+	}
+	if len(cfg.SubMods) == 0 {
+		return nil, false, fmt.Errorf("识别合集失败: 未识别到子 Mod")
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return nil, false, err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mod.json"), data, 0644); err != nil {
+		return nil, false, err
+	}
+	a.log("已生成 HDR 合集 mod.json: " + dir)
+	if len(pending) > 0 {
+		a.log("HDR 合集存在待确认占用项: " + dir)
+	}
+	return cfg, true, nil
+}
+
+// registerSubMods 将识别出的子 Mod 登记进数据仓库（父级不占用，并集写入 Parts）
+func (a *App) registerSubMods(name string, submods []SubModConfig) {
+	subInfos := make([]config.SubModInfo, 0, len(submods))
+	for _, sm := range submods {
+		subInfos = append(subInfos, config.SubModInfo{Name: sm.Name, Parts: sm.Parts, Cover: sm.Cover, Preview: sm.Previews})
+	}
+	a.modData.SetSubMods(name, subInfos)
+}
+
 // recognizeComposite 识别一个 HDR 合集文件夹，返回 modConfig、待确认条目与警告信息
 func (a *App) recognizeComposite(dir, name string) (*modConfig, []PendingItem, string) {
 	cfg := &modConfig{Nickname: name}
@@ -1528,14 +1575,19 @@ func copyDir(src, dst string, onProgress func(copied, total int)) error {
 // UninstallMod 卸载 Mod：移除符号链接并清除安装状态，保留记录（文件库中显示为“未安装”）。
 // 不会删除托管目录中的文件夹，因此刷新/启动扫描后不会重新出现。
 func (a *App) UninstallMod(modName string) error {
-	if link := modLinkPath(a.cfg, modName); mods.IsEnabled(link) {
+	link := modLinkPath(a.cfg, modName)
+	md := a.modData.Find(modName)
+	if md != nil && len(md.SubMods) > 0 {
+		// 组合包：父目录是真实目录（含各子 Mod 链接），整体移除
+		if err := mods.DisableComposite(link); err != nil {
+			a.log("卸载组合 Mod 时移除父目录失败: " + err.Error())
+		}
+		// 组合包卸载后，其子 Mod 一并标记为关闭（父级链接已移除，数据保持一致）
+		a.modData.DisableAllSubMods(modName)
+	} else if mods.IsActive(link) {
 		if err := mods.Disable(link); err != nil {
 			a.log("卸载 Mod 时移除符号链接失败: " + err.Error())
 		}
-	}
-	// 组合包卸载后，其子 Mod 一并标记为关闭（父级链接已移除，数据保持一致）
-	if md := a.modData.Find(modName); md != nil && len(md.SubMods) > 0 {
-		a.modData.DisableAllSubMods(modName)
 	}
 	a.modData.Uninstall(modName)
 	a.syncLock(modName)
@@ -1579,13 +1631,43 @@ func (a *App) ScanMods() ([]config.ModInfo, error) {
 	for i := range a.modData.Mods {
 		a.refreshModPreviews(&a.modData.Mods[i], true)
 	}
+	a.reconcileCompositeRecords()
 	a.rebuildLocks()
 	a.log(fmt.Sprintf("同步 Mod 数据完成，共 %d 个", len(a.modData.Mods)))
 	return a.modData.Mods, nil
 }
 
-func (a *App) GetConfig() *config.App    { return a.cfg }
-func (a *App) GetMods() []config.ModInfo { return a.modData.Mods }
+func (a *App) GetConfig() *config.App { return a.cfg }
+func (a *App) GetMods() []config.ModInfo {
+	a.reconcileCompositeRecords()
+	return a.modData.Mods
+}
+
+// reconcileCompositeRecords 数据记录与磁盘对齐：对缺少子 Mod 的 HDR 合集记录，
+// 从 mod.json（缺失时自动识别）补齐子 Mod，保证组合包始终以组合形式展示而非单个 Mod。
+// 判别依据与 InstallHdrMod 一致：目录含公共 meshes/ 与 textures/ 即视为 HDR 合集；
+// 仅对"无子 Mod 且目录为合集"的记录执行一次磁盘识别，补齐后下次直接跳过。
+func (a *App) reconcileCompositeRecords() {
+	for i := range a.modData.Mods {
+		m := &a.modData.Mods[i]
+		if len(m.SubMods) > 0 || m.Path == "" || m.Missing {
+			continue
+		}
+		if !hasSubDir(m.Path, "meshes") || !hasSubDir(m.Path, "textures") {
+			continue
+		}
+		_, _, _, _, _, submods, _ := a.readModConfig(m.Path)
+		if len(submods) == 0 {
+			if _, ok, err := a.ensureCompositeConfig(m.Path, m.Name); err == nil && ok {
+				_, _, _, _, _, submods, _ = a.readModConfig(m.Path)
+			}
+		}
+		if len(submods) > 0 {
+			a.registerSubMods(m.Name, submods)
+			a.log("已按 HDR 合集补齐子 Mod 记录: " + m.Name)
+		}
+	}
+}
 
 // ModConflict 资源占用冲突项：某 Mod 与另一已启用 Mod 在同一部位占用了同一资源
 type ModConflict struct {

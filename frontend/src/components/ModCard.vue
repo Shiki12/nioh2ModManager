@@ -24,7 +24,10 @@
       <template #description>
         <div class="mod-tags">
           <a-tag :class="mod.enabled ? 'tag-enabled' : 'tag-disabled'" size="small">{{ mod.enabled ? '已启用' : '已禁用' }}</a-tag>
-          <a-tag v-if="mod.submods && mod.submods.length" class="tag-type" size="small">组合包 {{ mod.submods.length }} 个子 Mod</a-tag>
+          <div v-if="mod.submods && mod.submods.length" class="mod-composite">
+            <a-tag class="tag-type" size="small">组合包 {{ mod.submods.length }} 个子 Mod</a-tag>
+            <a-tag class="tag-sub-count" size="small">{{ subEnabledCount }}/{{ mod.submods.length }} 已启用</a-tag>
+          </div>
           <a-tag v-if="mod.category === 'weapon'" class="tag-type" size="small">武器</a-tag>
           <a-tag v-else-if="mod.category === 'mixed'" class="tag-type" size="small">混合</a-tag>
           <a-tooltip v-if="conflictText" :title="conflictText">
@@ -50,14 +53,6 @@
         </div>
       </template>
     </a-card-meta>
-    <template #actions>
-      <a-tooltip :title="isSub ? '查看父 Mod 信息' : '编辑'">
-        <EditOutlined key="edit" @click.stop="$emit('edit', isSub ? parentMod : mod)" />
-      </a-tooltip>
-      <a-tooltip v-if="mod.enabled" :title="isSub ? '禁用子 Mod：删除链接并刷新游戏' : '禁用：删除符号链接并刷新游戏'">
-        <MinusCircleOutlined key="disable" style="color:#ff4d4f;font-size:16px" @click.stop="onToggleRefresh" />
-      </a-tooltip>
-    </template>
   </a-card>
 
   <a-modal v-model:open="previewVisible" :footer="null" :title="mod.nickname || mod.name" width="min(720px, 92vw)" centered>
@@ -72,7 +67,7 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { FileImageOutlined, EditOutlined, MinusCircleOutlined, ZoomInOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
+import { FileImageOutlined, ZoomInOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
 const props = defineProps({ mod: { type: Object, required: true }, isSub: { type: Boolean, default: false }, parentMod: { type: Object, default: null }, conflictInfo: { type: Object, default: null } })
 const emit = defineEmits(['toggle', 'toggleRefresh', 'toggleSub', 'toggleSubRefresh', 'edit'])
 const maxWeapons = 3
@@ -87,6 +82,7 @@ const flatParts = computed(() => {
 })
 const armorText = computed(() => Object.entries(flatParts.value).filter(([k]) => k !== '武器').flatMap(([, vals]) => vals).join('、'))
 const weapons = computed(() => flatParts.value['武器'] || [])
+const subEnabledCount = computed(() => (props.mod.submods || []).filter(s => s.enabled).length)
 const conflictText = computed(() => {
   const confs = props.conflictInfo?.conflicts
   if (!confs || !confs.length) return ''
@@ -116,7 +112,6 @@ const effectImages = computed(() => {
 const coverSrc = computed(() => (effectImages.value.length ? resolveUrl(effectImages.value[0]) : ''))
 const previewSrc = computed(() => resolveUrl(effectImages.value[previewIndex.value] || props.mod.cover))
 function onToggle() { if (props.isSub) emit('toggleSub', props.parentMod, props.mod); else emit('toggle', props.mod) }
-function onToggleRefresh() { if (props.isSub) emit('toggleSubRefresh', props.parentMod, props.mod); else emit('toggleRefresh', props.mod) }
 // 效果图：mod.json 指定的是相对文件名（随 mod 文件夹走）→ 走 /modfile；
 // 旧数据/手动选择的是绝对路径 → 回退 /localfile
 function resolveUrl(path) {
@@ -163,9 +158,11 @@ function previewNav(d) {
 .mod-card :deep(.ant-tag.tag-enabled) { background: #e6ffed !important; color: #389e0d !important; }
 .mod-card :deep(.ant-tag.tag-disabled) { background: #f0f0f0 !important; color: #999 !important; }
 .mod-card :deep(.ant-tag.tag-type) { background: #e6f4ff !important; color: #1a73e8 !important; }
+.mod-card :deep(.ant-tag.tag-sub-count) { background: #f0f5ff !important; color: #597ef7 !important; }
 .mod-card :deep(.ant-tag.tag-sub) { background: #e6fffb !important; color: #08979c !important; }
 .mod-card :deep(.ant-tag.tag-warning) { background: #fff1f0 !important; color: #d9363e !important; }
 .mod-tags { display: flex; flex-wrap: wrap; align-items: center; margin-top: 6px; }
+.mod-composite { display: flex; flex-direction: column; gap: 2px; width: 100%; margin-top: 2px; }
 .mod-folder { margin-top: 6px; font-size: 11px; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 占用服装：灰色辅助文本，最多 2 行省略（Tooltip 已绑定完整文本） */
 .mod-armor { margin-top: 6px; font-size: 12px; color: #888; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

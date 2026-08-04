@@ -384,3 +384,101 @@ func TestSubModCover(t *testing.T) {
 		t.Fatalf("无图片时应返回空串，得到 %q", got)
 	}
 }
+
+// 构造一个不含 mod.json 的 HDR 合集（含公共 meshes/textures 与一个可解析子 Mod）
+func makeHdrCollection(t *testing.T, dir string) {
+	t.Helper()
+	mkdir(t, filepath.Join(dir, "meshes"))
+	mkdir(t, filepath.Join(dir, "textures"))
+	subA := filepath.Join(dir, "01_[A] Special Costume Set")
+	mkdir(t, subA)
+	writeGBK(t, filepath.Join(subA, "01 TYPE [A] Read Me.txt"),
+		";-01_[A] Special Costume Set\r\n"+
+			";-生效幻化素材: \\ Effective Materials:\r\n"+
+			";-胸 - 讨魔首领 \\ Chest - DemonSlayer\r\n")
+	writeFile(t, filepath.Join(subA, "[01A] A1 - x.ini"), "hash = 1234\n")
+}
+
+// 回归：卸载后经普通"安装 Mod"流程重装的 HDR 合集（无 mod.json），
+// ImportMod 应自动识别为组合包并登记子 Mod，而不是当作单个 Mod
+func TestImportModAutoDetectHdrCollection(t *testing.T) {
+	repo := t.TempDir()
+	src := t.TempDir()
+	makeHdrCollection(t, filepath.Join(src, "01_HDR Test Collection"))
+
+	app := &App{cfg: &config.App{ModsRepo: repo}, modData: &config.ModData{}, logData: &config.LogData{}}
+	res, err := app.ImportMod(filepath.Join(src, "01_HDR Test Collection"))
+	if err != nil {
+		t.Fatalf("ImportMod 失败: %v", err)
+	}
+	if len(res.SubMods) != 1 {
+		t.Fatalf("期望自动识别为 1 个子 Mod，得到 %d", len(res.SubMods))
+	}
+	md := app.modData.Find(res.Name)
+	if md == nil {
+		t.Fatal("Mod 未登记")
+	}
+	if len(md.SubMods) != 1 {
+		t.Fatalf("数据仓库子 Mod 数量错误: %d", len(md.SubMods))
+	}
+	// 识别后应生成 mod.json
+	if _, err := os.Stat(filepath.Join(repo, res.Name, "mod.json")); err != nil {
+		t.Fatalf("识别后应生成 mod.json: %v", err)
+	}
+}
+
+// 回归：以单个 Mod 形式登记过的 HDR 合集重装时，GetModConfig 应自动识别组合包
+// 并登记子 Mod，保证安装弹窗以组合包形式展示（而非单个 Mod 表单）
+func TestGetModConfigAutoDetectHdrCollection(t *testing.T) {
+	repo := t.TempDir()
+	name := "01_HDR Test Collection"
+	col := filepath.Join(repo, name)
+	makeHdrCollection(t, col)
+
+	app := &App{cfg: &config.App{ModsRepo: repo}, modData: &config.ModData{}, logData: &config.LogData{}}
+	app.modData.Upsert(name, col)
+	res, err := app.GetModConfig(name)
+	if err != nil {
+		t.Fatalf("GetModConfig 失败: %v", err)
+	}
+	if len(res.SubMods) != 1 {
+		t.Fatalf("期望识别为 1 个子 Mod，得到 %d", len(res.SubMods))
+	}
+	md := app.modData.Find(name)
+	if md == nil {
+		t.Fatal("Mod 未登记")
+	}
+	if len(md.SubMods) != 1 {
+		t.Fatalf("GetModConfig 后数据仓库应登记子 Mod，得到 %d", len(md.SubMods))
+	}
+}
+
+// 回归：历史以单个 Mod 形式登记的 HDR 合集记录，在 GetMods/ScanMods 时应自动
+// 从磁盘（mod.json / 自动识别）补齐子 Mod，卡片恢复"组合包"展示
+func TestReconcileCompositeRecords(t *testing.T) {
+	repo := t.TempDir()
+	name := "01_HDR Test Collection"
+	col := filepath.Join(repo, name)
+	makeHdrCollection(t, col)
+
+	app := &App{cfg: &config.App{ModsRepo: repo}, modData: &config.ModData{}, logData: &config.LogData{}}
+	// 模拟历史记录：仅以单个 Mod 形式登记，无子 Mod；但磁盘上是 HDR 合集
+	app.modData.Upsert(name, col)
+
+	app.GetMods()
+	md := app.modData.Find(name)
+	if md == nil {
+		t.Fatal("Mod 未登记")
+	}
+	if len(md.SubMods) != 1 {
+		t.Fatalf("GetMods 后应补齐子 Mod，得到 %d", len(md.SubMods))
+	}
+	if md.Category == "" {
+		t.Fatal("补齐后应推导分类")
+	}
+	// 再次调用应幂等（不重复识别/写入）
+	app.GetMods()
+	if len(app.modData.Find(name).SubMods) != 1 {
+		t.Fatal("重复调用不应改变子 Mod 数量")
+	}
+}

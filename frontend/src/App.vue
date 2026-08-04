@@ -18,7 +18,7 @@
               <a-tooltip :title="conflictCount > 0 ? '解决冲突' : '没有冲突'">
                 <div class="conflict-img-wrap" @click="conflictVisible = true">
                   <img :src="conflictImg" class="header-img-btn" alt="解决冲突" />
-                  <span class="conflict-badge" :class="{ 'no-conflict': conflictCount === 0 }">{{ conflictCount }}</span>
+                  <span class="conflict-badge" :class="{ 'no-conflict': conflictCount === 0, 'has-conflict': conflictCount > 0 }">{{ conflictCount }}</span>
                 </div>
               </a-tooltip>
             </a-space>
@@ -187,34 +187,57 @@
           <LoadingOutlined spin class="recognize-icon" />
           <span>正在识别该 Mod 占用的服装/武器资源…</span>
         </div>
-        <a-alert v-else :message="installPrompt.text || '请填写该 Mod 对应的衣服名称（占用的装备资源），用于生成已安装卡片'" :type="installPrompt.type" show-icon />
-        <div class="install-mod-name">{{ installingMod?.name }}</div>
-        <div class="parts-grid">
-          <div v-for="slot in allSlots" :key="slot.name" class="parts-row">
-            <a-tag class="parts-tag">{{ slot.name }}</a-tag>
-            <a-select
-              v-if="slot.name === '武器'"
-              v-model:value="installParts[slot.name]"
-              :options="slotOptions(slot)"
-              placeholder="选择占用的武器（可添加多个）"
-              mode="multiple"
-              allow-clear
-              show-search
-              option-filter-prop="label"
-              class="parts-select"
-            />
-            <a-select
-              v-else
-              v-model:value="installParts[slot.name]"
-              :options="slotOptions(slot)"
-              placeholder="未占用"
-              allow-clear
-              show-search
-              option-filter-prop="label"
-              class="parts-select"
-            />
+        <template v-else>
+          <a-alert v-if="!installingSubMods.length"
+            :message="installPrompt.text || '请填写该 Mod 对应的衣服名称（占用的装备资源），用于生成已安装卡片'"
+            :type="installPrompt.type" show-icon />
+          <a-alert v-else type="info" show-icon :message="`该 Mod 为组合包（HDR 合集），共 ${installingSubMods.length} 个子 Mod，安装后各子 Mod 将分别显示在卡片中`" />
+          <div class="install-mod-name">{{ installingMod?.name }}</div>
+          <template v-if="installingSubMods.length">
+            <div class="form-section-title">子 Mod（组合包，共 {{ installingSubMods.length }} 个）</div>
+            <div class="section-tip">
+              组合包由多个子 Mod 组成，每个子 Mod 各自占用一套装备资源，父级不单独占用。安装后需先启用组合包，再单独启用子 Mod
+            </div>
+            <div class="edit-submods">
+              <ModCard
+                v-for="sub in installingSubMods"
+                :key="sub.name"
+                :mod="installSubModView(sub)"
+                :is-sub="true"
+                :parent-mod="installingMod"
+                @toggle-sub="() => toggleSubMod(installingMod, sub)"
+                @toggle-sub-refresh="() => toggleSubModRefresh(installingMod, sub)"
+                @edit="() => openSubEdit(sub)"
+              />
+            </div>
+          </template>
+          <div v-else class="parts-grid">
+            <div v-for="slot in allSlots" :key="slot.name" class="parts-row">
+              <a-tag class="parts-tag">{{ slot.name }}</a-tag>
+              <a-select
+                v-if="slot.name === '武器'"
+                v-model:value="installParts[slot.name]"
+                :options="slotOptions(slot)"
+                placeholder="选择占用的武器（可添加多个）"
+                mode="multiple"
+                allow-clear
+                show-search
+                option-filter-prop="label"
+                class="parts-select"
+              />
+              <a-select
+                v-else
+                v-model:value="installParts[slot.name]"
+                :options="slotOptions(slot)"
+                placeholder="未占用"
+                allow-clear
+                show-search
+                option-filter-prop="label"
+                class="parts-select"
+              />
+            </div>
           </div>
-        </div>
+        </template>
       </a-space>
     </a-modal>
 
@@ -515,10 +538,10 @@ onMounted(() => { loadConflicts() })
 // ---- 冲突解决 ----
 const conflictVisible = ref(false)
 const cardToolVisible = ref(false)
-const conflictCount = computed(() => (conflicts?.length || 0))
+const conflictCount = computed(() => (conflicts?.value?.length || 0))
 const conflictNameToMod = computed(() => {
   const map = {}
-  for (const m of mods || []) map[m.name] = m
+  for (const m of mods.value || []) map[m.name] = m
   return map
 })
 function nickOf(name) {
@@ -526,39 +549,57 @@ function nickOf(name) {
   return m?.nickname || name
 }
 const conflictGroups = computed(() => {
-  const parent = {}
-  const find = (x) => { while (parent[x] !== x) { parent[x] = parent[parent[x]]; x = parent[x] } return x }
-  const union = (a, b) => { parent[find(a)] = find(b) }
-  const ensure = (name) => { if (!(name in parent)) parent[name] = name }
-  const rawEdges = []
-  for (const info of conflicts || []) {
+  // 全部使用 Map，避免 Mod 名为 constructor/prototype 等原型属性名时污染冲突
+  const parent = new Map()
+  const find = (x) => {
+    if (!parent.has(x)) return x
+    let r = x
+    while (parent.get(r) !== r) r = parent.get(r)
+    let c = x
+    while (parent.get(c) !== r) { const next = parent.get(c); parent.set(c, r); c = next }
+    return r
+  }
+  const ensure = (name) => { if (!parent.has(name)) parent.set(name, name) }
+  const list = Array.isArray(conflicts.value) ? conflicts.value : []
+  for (const info of list) {
+    if (!info || typeof info.modName !== 'string' || !info.modName) continue
     ensure(info.modName)
-    for (const c of info.conflicts || []) {
+    for (const c of Array.isArray(info.conflicts) ? info.conflicts : []) {
+      if (!c || typeof c.modName !== 'string' || !c.modName) continue
       ensure(c.modName)
-      union(info.modName, c.modName)
-      rawEdges.push({ a: info.modName, b: c.modName, slot: c.slot, value: c.value })
+      parent.set(find(info.modName), find(c.modName))
     }
+  }
+  const groups = new Map()
+  const order = []
+  for (const name of parent.keys()) {
+    const r = find(name)
+    if (!groups.has(r)) { groups.set(r, { mods: [], edges: [] }); order.push(r) }
+    groups.get(r).mods.push(name)
   }
   const seen = new Set()
   const edges = []
-  for (const e of rawEdges) {
-    const key = [e.a, e.b].sort().join('\u0000') + '|' + e.slot + '|' + e.value
-    if (seen.has(key)) continue
-    seen.add(key)
-    edges.push(e)
+  for (const info of list) {
+    if (!info || typeof info.modName !== 'string' || !info.modName) continue
+    for (const c of Array.isArray(info.conflicts) ? info.conflicts : []) {
+      if (!c || typeof c.modName !== 'string' || !c.modName) continue
+      const key = [info.modName, c.modName].sort().join('\u0000') + '|' + (c.slot || '') + '|' + (c.value || '')
+      if (seen.has(key)) continue
+      seen.add(key)
+      edges.push({ a: info.modName, b: c.modName, slot: c.slot, value: c.value })
+    }
   }
-  const groups = {}
-  const order = []
-  for (const name in parent) {
-    const r = find(name)
-    if (!groups[r]) { groups[r] = { mods: [], edges: [] }; order.push(r) }
-    groups[r].mods.push(name)
+  for (const e of edges) {
+    const g = groups.get(find(e.a))
+    if (g) g.edges.push(e)
   }
-  for (const e of edges) groups[find(e.a)].edges.push(e)
-  return order.map(r => ({
-    mods: groups[r].mods.map(name => conflictNameToMod.value[name]).filter(Boolean),
-    edges: groups[r].edges,
-  }))
+  return order.map(r => {
+    const g = groups.get(r)
+    return {
+      mods: g.mods.map(name => (name != null ? conflictNameToMod.value[name] : null)).filter(Boolean),
+      edges: g.edges,
+    }
+  })
 })
 
 // 打开 Mod 托管目录弹窗时自动核对游戏目录（带加载动画）
@@ -634,8 +675,17 @@ async function installMod() {
   importProgressVisible.value = false
   // 导入已登记进数据文件，直接读取展示
   await loadMods()
+  const isComposite = (res.submods || []).length > 0
   const hasParts = res.configFound && Object.keys(res.parts || {}).length > 0
-  if (hasParts) {
+  if (isComposite) {
+    // 组合包（HDR 合集）：ImportMod 已按子 Mod 登记，直接标记安装完成（与"安装 HDR Mod"行为一致）
+    try {
+      await installModRecord({ name: res.name }, res.parts)
+      if (res.nickname) await SetModNickname(res.name, res.nickname)
+      message.success(`已识别为组合包（HDR 合集），共 ${res.submods.length} 个子 Mod，安装完成`)
+      addLog(`已自动安装 HDR 合集: ${res.name}`)
+    } catch (e) { addLog(`自动安装失败: ${e}`) }
+  } else if (hasParts) {
     // 有 mod.json 且能解析出有效部位 → 自动补全安装
     try {
       await installModRecord({ name: res.name }, res.parts)
@@ -646,7 +696,7 @@ async function installMod() {
   } else {
     // 没有 mod.json 或解析不到有效部位 → 打开弹窗手动输入（已解析到的部位预填）
     addLog(res.configFound ? 'mod.json 无有效部位数据，请手动补充' : '未检测到 mod.json，请手动填写占用装备资源')
-    openInstallMod({ name: res.name, parts: res.parts || {}, nickname: res.nickname || '' })
+    openInstallMod({ name: res.name, parts: res.parts || {}, nickname: res.nickname || '', submods: res.submods || [] })
   }
 }
 
@@ -662,7 +712,9 @@ const installRecognizing = ref(false)
 /** 打开安装弹窗：尝试读取 mod.json，有则自动补全占用装备资源并提示，无则提示手动填写 */
 async function openInstallMod(mod) {
   installingMod.value = mod
-  installParts.value = normalizeParts(mod.parts)
+  // 组合包（HDR 等）：父级 Parts 在卸载时被清空，但各子 Mod 的占用数据仍在数据文件中，
+  // 用子 Mod 部位并集预填，避免重新安装时弹窗空白需手动重填
+  installParts.value = normalizeParts({ ...unionSubModParts(mod.submods), ...(mod.parts || {}) })
   installCover.value = mod.cover || ''
   pendingNickname.value = mod.nickname || ''
   installPrompt.value = { type: 'info', text: '' }
@@ -674,8 +726,13 @@ async function openInstallMod(mod) {
     if (cfg && cfg.configFound) {
       if (cfg.nickname && !pendingNickname.value) pendingNickname.value = cfg.nickname
       if (cfg.cover && !installCover.value) installCover.value = cfg.cover
-      installParts.value = normalizeParts({ ...(cfg.parts || {}), ...(mod.parts || {}) })
-      installPrompt.value = Object.keys(cfg.parts || {}).length > 0
+      installParts.value = normalizeParts({ ...unionSubModParts(cfg.submods), ...(cfg.parts || {}), ...unionSubModParts(mod.submods), ...(mod.parts || {}) })
+      // 组合包（HDR 合集）：用后端识别出的子 Mod 补全弹窗，显示组合包形式而非单个 Mod 表单
+      if (cfg.submods && cfg.submods.length) {
+        installingMod.value = { ...installingMod.value, name: mod.name, submods: cfg.submods }
+      }
+      const hasAny = Object.keys(installParts.value).length > 0
+      installPrompt.value = hasAny
         ? { type: 'success', text: '已检测到 mod.json，以下占用装备资源已自动补全，可确认或修改' }
         : { type: 'warning', text: '已检测到 mod.json，但未解析到有效部位数据，请手动填写' }
     } else {
@@ -773,6 +830,27 @@ function normalizeParts(parts) {
   return out
 }
 
+/** 组合 Mod 各子 Mod 占用部位的并集（父级预填/冲突展示用） */
+function unionSubModParts(submods) {
+  const union = {}
+  for (const sm of submods || []) {
+    for (const [slot, vals] of Object.entries(sm.parts || {})) {
+      const list = Array.isArray(vals) ? vals : (vals ? [vals] : [])
+      for (const v of list) {
+        const s = typeof v === 'string' ? v.trim() : ''
+        if (!s) continue
+        if (slot === '武器') {
+          const arr = union[slot] || (union[slot] = [])
+          if (!arr.includes(s)) arr.push(s)
+        } else if (!union[slot]) {
+          union[slot] = s
+        }
+      }
+    }
+  }
+  return union
+}
+
 /** 过滤占用资源，仅保留有效槽位（服装部位 + 武器），输出为 部位 -> 数组（后端格式）。
  *  武器部位可含多个值，服装部位每个一个值。 */
 function cleanParts(parts) {
@@ -833,6 +911,22 @@ function subModView(sub) {
     cover: sub.cover || '',
     previews: sub.previews || [],
     category: editingMod.value?.category || 'armor',
+    submods: [],
+  }
+}
+// 安装弹窗内组合包的子 Mod 列表
+const installingSubMods = computed(() => (installingMod.value?.submods || []).filter(Boolean))
+// 安装弹窗内子 Mod 卡片的展示视图（与编辑弹窗一致）
+function installSubModView(sub) {
+  const mod = installingMod.value || {}
+  return {
+    name: sub.name,
+    nickname: sub.nickname || sub.name,
+    parts: sub.parts || {},
+    enabled: sub.enabled,
+    cover: sub.cover || '',
+    previews: sub.previews || [],
+    category: mod.category || 'armor',
     submods: [],
   }
 }
@@ -1080,7 +1174,9 @@ async function saveModEdit() {
 .launch-btn { flex-shrink: 0; margin-left: 16px; height: 44px; padding: 0 20px; font-size: 16px; display: inline-flex; align-items: center; gap: 6px; }
 .conflict-img-wrap { position: relative; cursor: pointer; }
 .conflict-badge { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; line-height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #f5222d; color: #fff; font-size: 12px; font-weight: 600; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.3); z-index: 2; }
-.conflict-badge.no-conflict { background: #9ca3af; }
+.conflict-badge.no-conflict { background: #9ca3af; min-width: 20px; height: 20px; line-height: 20px; font-size: 12px; }
+.conflict-badge.has-conflict { background: #f5222d; min-width: 24px; height: 24px; line-height: 24px; padding: 0 7px; border-radius: 12px; font-size: 14px; animation: conflict-pulse 1.6s ease-in-out infinite; }
+@keyframes conflict-pulse { 0%, 100% { box-shadow: 0 1px 3px rgba(0,0,0,.3); } 50% { box-shadow: 0 1px 8px rgba(245,34,45,.75); } }
 .conflict-group-list { display: flex; flex-direction: column; gap: 12px; }
 .conflict-group-card { background: #fff7f0; border: 1px solid #ffd8bf; border-radius: 8px; }
 .conflict-group-card :deep(.ant-card-head) { border-bottom: 1px dashed #ffd8bf; }

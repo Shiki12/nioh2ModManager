@@ -20,8 +20,10 @@ export function useModOperations(settingsForm, mods, needSetup, needModsRepoSetu
 
   /** 刷新全部已启用 Mod 之间的冲突检测结果 */
   async function loadConflicts() {
-    try { conflicts.value = (await CheckAllModConflicts()) || [] }
-    catch (e) { addLog(`检查 Mod 冲突失败: ${e}`) }
+    try {
+      const arr = await CheckAllModConflicts()
+      conflicts.value = Array.isArray(arr) ? arr : []
+    } catch (e) { addLog(`检查 Mod 冲突失败: ${e}`) }
   }
 
   /** 核对游戏目录：系统自动扫描并展示结果，供用户在 Mod 托管目录设置中确认 */

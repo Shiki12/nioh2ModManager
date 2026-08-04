@@ -521,10 +521,12 @@ func (d *ModData) Sync(scanned []ModInfo) {
 	d.Save()
 }
 
-// Uninstall 卸载 Mod：保留记录（文件库继续显示为“未安装”），仅清除安装状态与占用的服装
+// Uninstall 卸载 Mod：保留记录（文件库继续显示为“未安装”），仅清除安装状态、启用状态与占用的服装。
+// Enabled 必须一并清掉：否则启动 Sync 时 prev.Enabled 为 true 会把 Installed 又判定为已安装（卡片复活）。
 func (d *ModData) Uninstall(name string) {
 	if i := d.findIndex(name); i >= 0 {
 		d.Mods[i].Installed = false
+		d.Mods[i].Enabled = false
 		d.Mods[i].Parts = nil
 		d.Save()
 	}

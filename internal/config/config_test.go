@@ -54,3 +54,40 @@ func TestLoadLogsFromFile(t *testing.T) {
 		t.Fatalf("解析不符: %+v", loaded.Logs[1])
 	}
 }
+
+// 回归测试：卸载已启用的 Mod 后，重启 Sync 不应把卡片“复活”为已安装。
+// 旧逻辑 Uninstall 不清 Enabled，Sync 用 prev.Enabled 判定 Installed 导致复活。
+func TestUninstallPersistsThroughSync(t *testing.T) {
+	d := &ModData{}
+	d.Mods = []ModInfo{
+		{Name: "modA", Path: "C:/repo/modA", Installed: true, Enabled: true},
+		{Name: "modB", Path: "C:/repo/modB", Installed: true, Enabled: false},
+	}
+	// 卸载已启用的 modA
+	d.Uninstall("modA")
+	if d.Mods[0].Installed {
+		t.Fatal("卸载后 Installed 应为 false")
+	}
+	if d.Mods[0].Enabled {
+		t.Fatal("卸载后 Enabled 应为 false（否则 Sync 会误判为已安装）")
+	}
+	// 模拟重启：磁盘扫描结果里 modA 已无链接（Enabled=false），modB 无变化
+	scanned := []ModInfo{
+		{Name: "modA", Path: "C:/repo/modA", Enabled: false},
+		{Name: "modB", Path: "C:/repo/modB", Enabled: false},
+	}
+	d.Sync(scanned)
+	for _, m := range d.Mods {
+		if m.Name == "modA" {
+			if m.Installed {
+				t.Fatalf("Sync 后 modA 不应复活为已安装: %+v", m)
+			}
+			if m.Enabled {
+				t.Fatalf("Sync 后 modA 不应被标记为启用: %+v", m)
+			}
+		}
+		if m.Name == "modB" && !m.Installed {
+			t.Fatalf("modB 未卸载过，Installed 应保持不变: %+v", m)
+		}
+	}
+}
