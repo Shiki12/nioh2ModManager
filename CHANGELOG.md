@@ -2,6 +2,22 @@
 
 ## 2026-08-05
 
+### ⚡ 性能优化：滚动列表 / 打开卡片卡顿修复
+
+- **服务端按需缩略图（新增 `thumbnail.go`）**
+  - `/modfile`、`/localfile` 支持 `?w=<最大边长>`：用标准库 `image` 解码（png/jpeg/gif），双线性缩放到目标边长，非 PNG 统一 JPEG Q82 重编码、PNG 保留透明保持原格式。
+  - 内存缓存 key=`路径|边长|size|mtime`（改图自动失效），上限 256 条、超限清空重建。
+  - webp 等标准库无法解码的格式自动回退原文件（不压缩，不影响兼容）。
+  - 缩略图响应 `Cache-Control: public, max-age=86400`（key 已含 mtime）；原图响应 `max-age=300`。
+- **前端按显示场景取小图**：网格封面 `w=360`、缩略图 `w=64`，编辑/子 Mod 弹窗小封面 `w=128`、效果图小图 `w=96`，卡片工具图片 `w=160`；**全屏放大预览仍请求原图**保证清晰（缺省不带 `w`）。
+- **图片懒加载 + 异步解码**：`ModCard.vue` 封面与效果图、`App.vue` 弹窗封面/效果图、`AuthorTool.vue` 图片列表的 `<img>` 全部加 `loading="lazy"` + `decoding="async"`。
+- **弹窗内子 Mod 卡片隐藏缩略图**：`ModCard.vue` 新增 `hideThumbs` 属性，编辑/安装弹窗内的子 Mod 卡片传 `hide-thumbs`，组合包弹窗不再一次性加载几十张全尺寸图。
+- **卡片固定等高**：`ModsPage.vue` 网格与 `App.vue` 子 Mod 网格加 `grid-auto-rows: 1fr`，`ModCard.vue` 卡片 `height:100%` + flex 纵向铺满、效果图行 `margin-top:auto` 贴底，卡片不再因内容多少高低不齐。
+
+---
+
+## 历史版本
+
 ### 🐛 冲突检测 / 冲突弹窗修复
 
 - **修复：有冲突时点击「冲突」按钮弹窗打不开、程序卡死**
@@ -30,6 +46,7 @@
   - 根因：`ModLibrary.vue` 的 `tablePagination` 是普通对象，非响应式；ant-design-vue v4 内部修改 pageSize 后不会触发表格重新渲染，导致切分页大小无效。
   - 修复：改为 `ref` 包裹（响应式）。
   - **分页选项调整**：`['10','20','50']` → `['5','10','20']`，默认每页条数 10 → 5。
+  - **进一步修复（仍无法选择时）**：将分页改为**完全受控**（显式维护 `current` + `pageSize`，通过 `onChange` / `onShowSizeChange` 回调写回 ref），确保切换条数后表格强制重渲染；并**移除 `.ant-table` 上的 `overflow: hidden`**——该样式会裁剪隐藏分页「每页条数」下拉列表，导致点不开/无法选择。
 
 ---
 

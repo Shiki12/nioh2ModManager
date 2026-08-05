@@ -208,7 +208,7 @@ export function useModOperations(settingsForm, mods, needSetup, needModsRepoSetu
   }
 
   async function refreshGame() {
-    addLog('正在向游戏窗口发送 F10 → F2 刷新指令...')
+    addLog('正在向游戏窗口发送 F10 刷新指令...')
     try {
       const ok = await RefreshGameMods()
       if (ok) {

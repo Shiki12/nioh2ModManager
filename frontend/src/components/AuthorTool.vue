@@ -19,13 +19,17 @@
         <div class="mod-folder-name">{{ folderName }}</div>
         <div class="mod-folder-path">{{ folder }}</div>
 
-        <div class="section-title">封面图片 <span class="section-sub">点击缩略图选择</span>
+        <div class="section-title">图片 <span class="section-sub">点击缩略图设为封面，勾选"效果图"作为多张预览</span>
           <a-button size="small" class="btn-gold" style="margin-left:8px" @click="importImage"><template #icon><PictureOutlined /></template>导入图片到文件夹</a-button>
         </div>
         <div v-if="images.length" class="image-grid">
           <div v-for="img in images" :key="img" class="image-item" :class="{ selected: img === selectedCover }"
             :title="img" @click="selectedCover = img">
-            <img :src="imageUrl(img)" @error="e => e.target.style.visibility = 'hidden'" />
+            <img :src="imageUrl(img)" loading="lazy" decoding="async" @error="e => e.target.style.visibility = 'hidden'" />
+            <span v-if="img === selectedCover" class="img-badge img-cover">封面</span>
+            <span class="img-badge img-preview" :class="{ active: previews.includes(img) }" @click.stop="togglePreview(img)">
+              <CheckSquareOutlined v-if="previews.includes(img)" /> <BorderOutlined v-else /> 效果图
+            </span>
             <div class="image-name">{{ img }}</div>
           </div>
         </div>
@@ -121,7 +125,7 @@
 <script setup>
 import { ref, computed, inject, h } from 'vue'
 import { message } from 'ant-design-vue'
-import { FolderOpenOutlined, ExportOutlined, LoadingOutlined, PictureOutlined, EditOutlined, ExperimentOutlined } from '@ant-design/icons-vue'
+import { FolderOpenOutlined, ExportOutlined, LoadingOutlined, PictureOutlined, EditOutlined, ExperimentOutlined, CheckSquareOutlined, BorderOutlined } from '@ant-design/icons-vue'
 import { SelectDirectory, SelectImageFile, ListFolderImages, ReadModConfig, WriteModCard, AddCoverImage, GetArmorParts, GetWeaponParts, BatchGenerateModCards } from '../../wailsjs/go/main/App'
 import ModCard from './ModCard.vue'
 
@@ -138,6 +142,7 @@ const batchRunning = ref(false)
 const batchResult = ref(null)
 const images = ref([])
 const selectedCover = ref('')
+const previews = ref([])
 const nickname = ref('')
 const parts = ref({})
 
@@ -169,7 +174,7 @@ function folderPath(file) {
   return folder.value.replace(/[\\/]+$/, '') + '\\' + file
 }
 function imageUrl(file) {
-  return '/localfile?file=' + encodeURIComponent(folderPath(file))
+  return '/localfile?file=' + encodeURIComponent(folderPath(file)) + '&w=160'
 }
 function slotOptions(slot) {
   const seen = new Set()
@@ -209,10 +214,18 @@ const previewMod = computed(() => ({
   name: folderName.value || 'Mod 名称',
   nickname: nickname.value,
   cover: selectedCover.value ? folderPath(selectedCover.value) : '',
+  previews: previews.value.map(f => folderPath(f)),
   enabled: true,
   category: deriveCategory(parts.value),
   parts: { ...parts.value },
 }))
+
+/** 切换某张图片是否为效果图（多选） */
+function togglePreview(img) {
+  const i = previews.value.indexOf(img)
+  if (i >= 0) previews.value.splice(i, 1)
+  else previews.value.push(img)
+}
 
 // 将要写入的 mod.json 内容（键顺序与后端一致：服装部位在前、武器最后）
 const previewJson = computed(() => {
@@ -221,12 +234,14 @@ const previewJson = computed(() => {
   for (const slot of slots.value.map(s => s.name)) {
     if (cleaned[slot]) ordered[slot] = cleaned[slot]
   }
-  return JSON.stringify({
+  const out = {
     nickname: nickname.value,
     category: deriveCategory(ordered),
     cover: selectedCover.value,
-    parts: ordered,
-  }, null, 2)
+  }
+  if (previews.value.length) out.previews = [...previews.value]
+  out.parts = ordered
+  return JSON.stringify(out, null, 2)
 })
 
 async function selectFolder() {
@@ -238,6 +253,7 @@ async function selectFolder() {
   scanning.value = true
   images.value = []
   selectedCover.value = ''
+  previews.value = []
   nickname.value = ''
   parts.value = {}
   try {
@@ -250,6 +266,7 @@ async function selectFolder() {
       if (cfg.nickname) nickname.value = cfg.nickname
       if (cfg.cover && !images.value.includes(cfg.cover)) images.value.unshift(cfg.cover)
       if (cfg.cover) selectedCover.value = cfg.cover
+      previews.value = (cfg.previews || []).filter(p => images.value.includes(p))
       parts.value = normalizeParts(cfg.parts)
       addLog(`作者工具：已载入已有 mod.json（${folderName.value}）`)
     }
@@ -273,6 +290,7 @@ function applyJson() {
   if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) { message.error('JSON 应为对象'); return false }
   if (typeof obj.nickname === 'string') nickname.value = obj.nickname
   if (typeof obj.cover === 'string') selectedCover.value = obj.cover
+  if (Array.isArray(obj.previews)) previews.value = obj.previews.filter(p => typeof p === 'string')
   if (obj.parts && typeof obj.parts === 'object' && !Array.isArray(obj.parts)) {
     parts.value = normalizeParts(obj.parts)
   }
@@ -370,6 +388,7 @@ async function saveCard() {
     const res = await WriteModCard(folder.value, {
       nickname: nickname.value,
       cover: selectedCover.value,
+      previews: [...previews.value],
       parts: cleaned,
     })
     addLog(`作者工具：已生成 mod.json → ${folder.value}`)
@@ -396,9 +415,14 @@ async function saveCard() {
 .section-title { font-size: 13px; font-weight: 600; color: #333; margin: 14px 0 8px; }
 .section-sub { font-size: 12px; font-weight: 400; color: #999; }
 .image-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.image-item { border: 2px solid #eee; border-radius: 4px; overflow: hidden; cursor: pointer; background: #fafafa; }
+.image-item { border: 2px solid #eee; border-radius: 4px; overflow: hidden; cursor: pointer; background: #fafafa; position: relative; }
 .image-item.selected { border-color: #1a73e8; }
 .image-item img { width: 100%; height: 70px; object-fit: cover; display: block; }
+.img-badge { position: absolute; font-size: 10px; line-height: 1; padding: 2px 4px; border-radius: 3px; }
+.img-cover { top: 4px; left: 4px; background: #1a73e8; color: #fff; }
+.img-preview { bottom: 22px; right: 4px; background: rgba(0,0,0,.55); color: #fff; cursor: pointer; display: inline-flex; align-items: center; gap: 2px; user-select: none; }
+.img-preview:hover { background: rgba(26,115,232,.85); }
+.img-preview.active { background: #52c41a; }
 .image-name { font-size: 10px; color: #666; padding: 2px 4px; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty-tip { font-size: 12px; color: #999; padding: 8px 0; }
 .parts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }

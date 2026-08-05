@@ -2,7 +2,7 @@
   <a-card hoverable class="mod-card" :class="{ 'sub-card': isSub, 'mod-card-enabled': mod.enabled }" @click="$emit('edit', isSub ? parentMod : mod)">
     <template #cover>
       <div class="mod-cover" :class="{ disabled: !mod.enabled }">
-        <img v-if="coverSrc" :src="coverSrc" :alt="mod.nickname || mod.name" @error="onImgError" />
+        <img v-if="coverSrc" :src="coverSrc" :alt="mod.nickname || mod.name" loading="lazy" decoding="async" @error="onImgError" />
         <div v-else class="mod-cover-placeholder"><FileImageOutlined style="font-size:32px;color:#ccc" /></div>
         <div class="mod-cover-overlay" @click.stop>
           <a-switch :checked="mod.enabled" size="small" @change="onToggle" />
@@ -47,8 +47,8 @@
             </div>
           </a-tooltip>
         </div>
-        <div v-if="effectImages.length > 1" class="mod-thumbs" @click.stop>
-          <img v-for="(img, i) in effectImages.slice(0, 6)" :key="img" :src="resolveUrl(img)" :alt="i" class="mod-thumb" @click="openPreview(i)" @error="onImgError" />
+        <div v-if="!hideThumbs && effectImages.length > 1" class="mod-thumbs" @click.stop>
+          <img v-for="(img, i) in effectImages.slice(0, 6)" :key="img" :src="resolveUrl(img, 64)" :alt="i" class="mod-thumb" loading="lazy" decoding="async" @click="openPreview(i)" @error="onImgError" />
           <span v-if="effectImages.length > 6" class="mod-thumbs-more" @click="openPreview(6)">+{{ effectImages.length - 6 }}</span>
         </div>
       </template>
@@ -68,7 +68,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { FileImageOutlined, ZoomInOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
-const props = defineProps({ mod: { type: Object, required: true }, isSub: { type: Boolean, default: false }, parentMod: { type: Object, default: null }, conflictInfo: { type: Object, default: null } })
+const props = defineProps({ mod: { type: Object, required: true }, isSub: { type: Boolean, default: false }, parentMod: { type: Object, default: null }, conflictInfo: { type: Object, default: null }, hideThumbs: { type: Boolean, default: false } })
 const emit = defineEmits(['toggle', 'toggleRefresh', 'toggleSub', 'toggleSubRefresh', 'edit'])
 const maxWeapons = 3
 const previewVisible = ref(false)
@@ -109,19 +109,22 @@ const effectImages = computed(() => {
   }
   return imgs
 })
-const coverSrc = computed(() => (effectImages.value.length ? resolveUrl(effectImages.value[0]) : ''))
+const coverSrc = computed(() => (effectImages.value.length ? resolveUrl(effectImages.value[0], 360) : ''))
 const previewSrc = computed(() => resolveUrl(effectImages.value[previewIndex.value] || props.mod.cover))
 function onToggle() { if (props.isSub) emit('toggleSub', props.parentMod, props.mod); else emit('toggle', props.mod) }
 // 效果图：mod.json 指定的是相对文件名（随 mod 文件夹走）→ 走 /modfile；
 // 旧数据/手动选择的是绝对路径 → 回退 /localfile
-function resolveUrl(path) {
+// dim 指定时请求服务端缩略图（?w=），仅用于小尺寸显示；缺省返回原图（全屏预览用）
+function resolveUrl(path, dim) {
   if (!path) return ''
   if (/^[a-zA-Z]:[\\/]/.test(path) || path.startsWith('\\\\')) {
-    return '/localfile?file=' + encodeURIComponent(path)
+    const u = '/localfile?file=' + encodeURIComponent(path)
+    return dim ? u + '&w=' + dim : u
   }
   // 子 Mod 封面相对父 Mod（合集）目录解析
   const owner = props.isSub ? props.parentMod?.name : props.mod.name
-  return '/modfile?mod=' + encodeURIComponent(owner || props.mod.name) + '&file=' + encodeURIComponent(path)
+  const u = '/modfile?mod=' + encodeURIComponent(owner || props.mod.name) + '&file=' + encodeURIComponent(path)
+  return dim ? u + '&w=' + dim : u
 }
 function onImgError(e) { e.target.style.display = 'none' }
 function onPreviewError(e) { e.target.style.display = 'none' }
@@ -133,8 +136,10 @@ function previewNav(d) {
 </script>
 
 <style scoped>
-.mod-card { border-radius: 10px !important; overflow: hidden; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: box-shadow .2s, transform .2s; }
-.mod-card :deep(.ant-card-body) { padding: 12px 14px !important; }
+.mod-card { border-radius: 10px !important; overflow: hidden; height: 100%; display: flex; flex-direction: column; box-shadow: 0 4px 12px rgba(0,0,0,0.05); transition: box-shadow .2s, transform .2s; }
+.mod-card :deep(.ant-card-body) { padding: 12px 14px !important; flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.mod-card :deep(.ant-card-body > .ant-card-meta) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
+.mod-card :deep(.ant-card-body > .ant-card-meta > .ant-card-meta-detail) { flex: 1 1 auto; display: flex; flex-direction: column; min-height: 0; }
 .mod-card :deep(.ant-card-cover) { border-radius: 10px 10px 0 0; overflow: hidden; }
 .mod-card :deep(.ant-card-cover img) { border-radius: 0; }
 .mod-card:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.10); transform: translateY(-2px); }
@@ -170,7 +175,7 @@ function previewNav(d) {
 .mod-weapons-label { font-size: 12px; color: #999; margin-right: 2px; flex-shrink: 0; }
 .mod-weapons-inner { display: inline-flex; align-items: center; gap: 4px; flex-wrap: nowrap; overflow: hidden; min-width: 0; }
 .mod-weapons-more { font-size: 11px; color: #1a73e8; cursor: pointer; padding: 0 4px; flex-shrink: 0; }
-.mod-thumbs { margin-top: 6px; display: flex; align-items: center; gap: 4px; }
+.mod-thumbs { margin-top: auto; padding-top: 6px; display: flex; align-items: center; gap: 4px; }
 .mod-thumb { width: 30px; height: 22px; object-fit: cover; border-radius: 4px; cursor: zoom-in; border: 1px solid #eee; }
 .mod-thumb:hover { border-color: #1a73e8; }
 .mod-thumbs-more { font-size: 11px; color: #1a73e8; cursor: pointer; padding: 0 4px; }

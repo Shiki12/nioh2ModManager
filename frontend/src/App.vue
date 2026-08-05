@@ -205,6 +205,7 @@
                 :mod="installSubModView(sub)"
                 :is-sub="true"
                 :parent-mod="installingMod"
+                hide-thumbs
                 @toggle-sub="() => toggleSubMod(installingMod, sub)"
                 @toggle-sub-refresh="() => toggleSubModRefresh(installingMod, sub)"
                 @edit="() => openSubEdit(sub)"
@@ -263,7 +264,7 @@
         <div class="form-section-title">图片资源</div>
         <a-form-item label="封面图片">
           <div class="img-card" @click="selectModCover" :title="editCover || '点击选择封面图片'">
-            <img v-if="editCoverUrl()" :src="editCoverUrl()" alt="封面预览" @error="e => e.target.style.display = 'none'" />
+            <img v-if="editCoverUrl(128)" :src="editCoverUrl(128)" alt="封面预览" loading="lazy" decoding="async" @error="e => e.target.style.display = 'none'" />
             <div v-else class="img-card-empty">
               <PictureOutlined />
               <span>点击选择封面图</span>
@@ -277,7 +278,7 @@
         <a-form-item label="效果图（多张）">
           <div class="preview-list">
             <div v-for="(p, i) in editPreviews" :key="p" class="preview-item" @click="openEditPreview(i)">
-              <img :src="editPreviewUrl(p)" :alt="`效果图 ${i + 1}`" @error="e => e.target.style.display = 'none'" />
+              <img :src="editPreviewUrl(p, 96)" :alt="`效果图 ${i + 1}`" loading="lazy" decoding="async" @error="e => e.target.style.display = 'none'" />
               <a-tooltip title="设为封面"><StarOutlined class="preview-item-cover" :class="{ active: p === editCover }" @click.stop="setCover(p)" /></a-tooltip>
               <a-tooltip title="移除效果图"><CloseOutlined class="preview-item-remove" @click.stop="removeModPreview(p)" /></a-tooltip>
             </div>
@@ -301,6 +302,7 @@
               :mod="subModView(sub)"
               :is-sub="true"
               :parent-mod="editingMod"
+              hide-thumbs
               @toggle-sub="() => toggleSubMod(editingMod, sub)"
               @toggle-sub-refresh="() => toggleSubModRefresh(editingMod, sub)"
               @edit="() => openSubEdit(sub)"
@@ -353,7 +355,7 @@
     <a-modal :open="subEditVisible" :title="`修改子 Mod 占用：${editingSub?.name || ''}`" :footer="null" :width="560" @cancel="subEditVisible = false">
       <div class="sub-cover-row">
         <div class="edit-cover-box" @click="selectSubCover" :title="editSubCover || '点击选择封面图'">
-          <img v-if="subCoverUrl()" :src="subCoverUrl()" alt="子 Mod 封面" @error="e => e.target.style.display = 'none'" />
+          <img v-if="subCoverUrl(128)" :src="subCoverUrl(128)" alt="子 Mod 封面" loading="lazy" decoding="async" @error="e => e.target.style.display = 'none'" />
           <div v-else class="edit-cover-placeholder">
             <PictureOutlined style="font-size:20px;color:#ccc" />
             <span>点选封面</span>
@@ -395,7 +397,7 @@
       <a-divider style="margin:12px 0">子 Mod 效果图</a-divider>
       <div class="preview-list">
         <div v-for="(p, i) in editSubPreviews" :key="p" class="preview-item" @click="openSubPreview(i)">
-          <img :src="subPreviewUrl(p)" :alt="`效果图 ${i + 1}`" @error="e => e.target.style.display = 'none'" />
+          <img :src="subPreviewUrl(p, 96)" :alt="`效果图 ${i + 1}`" loading="lazy" decoding="async" @error="e => e.target.style.display = 'none'" />
           <a-tooltip title="设为封面"><StarOutlined class="preview-item-cover" :class="{ active: p === editSubCover }" @click.stop="setSubCover(p)" /></a-tooltip>
           <a-tooltip title="移除效果图"><CloseOutlined class="preview-item-remove" @click.stop="removeSubPreview(p)" /></a-tooltip>
         </div>
@@ -414,7 +416,7 @@
     <!-- 弹窗：效果图放大预览（编辑弹窗 / 子 Mod 弹窗共用） -->
     <a-modal v-model:open="previewModalVisible" :footer="null" :title="previewModalTitle" width="min(720px, 92vw)" centered>
       <div class="preview-wrap">
-        <img v-if="previewModalSrc" :src="previewModalSrc" :alt="previewModalTitle" class="preview-img" @error="e => e.target.style.display = 'none'" />
+        <img v-if="previewModalSrc" :src="previewModalSrc" :alt="previewModalTitle" decoding="async" class="preview-img" @error="e => e.target.style.display = 'none'" />
         <a-button v-if="previewModalImages.length > 1" class="preview-nav prev" shape="circle" @click="previewModalNav(-1)"><LeftOutlined /></a-button>
         <a-button v-if="previewModalImages.length > 1" class="preview-nav next" shape="circle" @click="previewModalNav(1)"><RightOutlined /></a-button>
       </div>
@@ -870,13 +872,16 @@ function cleanParts(parts) {
 }
 
 // 编辑弹窗封面缩略图：相对文件名走 /modfile（随 mod 文件夹），绝对路径走 /localfile
-function editCoverUrl() {
+// dim 指定时请求服务端缩略图，小尺寸显示用；全屏预览缺省取原图
+function editCoverUrl(dim) {
   const cover = editCover.value
   if (!cover) return ''
   if (/^[a-zA-Z]:[\\/]/.test(cover) || cover.startsWith('\\\\')) {
-    return '/localfile?file=' + encodeURIComponent(cover)
+    const u = '/localfile?file=' + encodeURIComponent(cover)
+    return dim ? u + '&w=' + dim : u
   }
-  return '/modfile?mod=' + encodeURIComponent(editingMod.value?.name || '') + '&file=' + encodeURIComponent(cover)
+  const u = '/modfile?mod=' + encodeURIComponent(editingMod.value?.name || '') + '&file=' + encodeURIComponent(cover)
+  return dim ? u + '&w=' + dim : u
 }
 
 function slotOptions(slot) {
@@ -998,11 +1003,15 @@ async function setCover(p) {
   } catch (e) { message.error(String(e)) }
 }
 // 子 Mod 封面缩略图：相对父 Mod 目录路径 → /modfile（owner 为父 Mod）
-function subCoverUrl() {
+function subCoverUrl(dim) {
   const cover = editSubCover.value
   if (!cover) return ''
-  if (/^[a-zA-Z]:[\\/]/.test(cover) || cover.startsWith('\\\\')) return '/localfile?file=' + encodeURIComponent(cover)
-  return '/modfile?mod=' + encodeURIComponent(editingMod.value?.name || '') + '&file=' + encodeURIComponent(cover)
+  if (/^[a-zA-Z]:[\\/]/.test(cover) || cover.startsWith('\\\\')) {
+    const u = '/localfile?file=' + encodeURIComponent(cover)
+    return dim ? u + '&w=' + dim : u
+  }
+  const u = '/modfile?mod=' + encodeURIComponent(editingMod.value?.name || '') + '&file=' + encodeURIComponent(cover)
+  return dim ? u + '&w=' + dim : u
 }
 // 选择本地图片作为子 Mod 封面：复制进子 Mod 目录后设为封面
 async function selectSubCover() {
@@ -1034,15 +1043,23 @@ async function setSubCover(p) {
   } catch (e) { message.error(String(e)) }
 }
 // 效果图：相对文件名走 /modfile（随 Mod 文件夹），绝对路径走 /localfile
-function editPreviewUrl(p) {
+function editPreviewUrl(p, dim) {
   if (!p) return ''
-  if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) return '/localfile?file=' + encodeURIComponent(p)
-  return '/modfile?mod=' + encodeURIComponent(editingMod.value?.name || '') + '&file=' + encodeURIComponent(p)
+  if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) {
+    const u = '/localfile?file=' + encodeURIComponent(p)
+    return dim ? u + '&w=' + dim : u
+  }
+  const u = '/modfile?mod=' + encodeURIComponent(editingMod.value?.name || '') + '&file=' + encodeURIComponent(p)
+  return dim ? u + '&w=' + dim : u
 }
-function subPreviewUrl(p) {
+function subPreviewUrl(p, dim) {
   if (!p) return ''
-  if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) return '/localfile?file=' + encodeURIComponent(p)
-  return '/modfile?mod=' + encodeURIComponent(editingMod.value?.name || '') + '&file=' + encodeURIComponent(p)
+  if (/^[a-zA-Z]:[\\/]/.test(p) || p.startsWith('\\\\')) {
+    const u = '/localfile?file=' + encodeURIComponent(p)
+    return dim ? u + '&w=' + dim : u
+  }
+  const u = '/modfile?mod=' + encodeURIComponent(editingMod.value?.name || '') + '&file=' + encodeURIComponent(p)
+  return dim ? u + '&w=' + dim : u
 }
 async function selectModPreview() {
   const mod = editingMod.value
@@ -1194,7 +1211,7 @@ async function saveModEdit() {
 .engine-mode-title { font-size: 13px; font-weight: 600; color: #333; margin-bottom: 4px; }
 .engine-mode-manual { border-style: dashed; }
 .parts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
-.edit-submods { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.edit-submods { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); grid-auto-rows: 1fr; gap: 12px; }
 .edit-cover-box { width: 80px; height: 80px; border: 1px dashed #d9d9d9; border-radius: 8px; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; background: #fafafa; }
 .edit-cover-box:hover { border-color: #1a73e8; }
 .edit-cover-box img { width: 100%; height: 100%; object-fit: cover; }

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -32,6 +33,9 @@ import (
 //   - /localfile?file=<绝对路径>   读取本地任意路径文件（旧版封面图等）
 //   - /modfile?mod=<名称>&file=<相对路径> 读取 Mod 文件夹内的文件（封面图相对文件名，可移植）
 func (a *App) fileHandler(w http.ResponseWriter, r *http.Request) {
+	// 封面/效果图等静态资源 URL 稳定，加短时缓存避免每次重渲染都重新读文件；
+	// cover.<ext> 可能被原地覆盖，故 max-age 取短值（5 分钟），换封面后最多短暂命中旧缓存。
+	w.Header().Set("Cache-Control", "public, max-age=300")
 	switch r.URL.Path {
 	case "/modfile":
 		repo := a.cfg.ModsRepo
@@ -47,12 +51,33 @@ func (a *App) fileHandler(w http.ResponseWriter, r *http.Request) {
 			http.NotFound(w, r)
 			return
 		}
-		http.ServeFile(w, r, target)
+		a.serveResolved(w, r, target)
 	case "/localfile":
-		http.ServeFile(w, r, r.URL.Query().Get("file"))
+		a.serveResolved(w, r, r.URL.Query().Get("file"))
 	default:
 		http.NotFound(w, r)
 	}
+}
+
+// serveResolved 处理单个静态资源请求：带 w 参数（最大边长）时尝试返回服务端缩略图，
+// 否则或解码失败时直接返回原文件。
+func (a *App) serveResolved(w http.ResponseWriter, r *http.Request, target string) {
+	if target == "" {
+		http.NotFound(w, r)
+		return
+	}
+	if dw := r.URL.Query().Get("w"); dw != "" {
+		if n, err := strconv.Atoi(dw); err == nil && n > 0 {
+			if data, ct, ok := imageThumbnail(target, n); ok {
+				w.Header().Set("Content-Type", ct)
+				// 缩略图 key 含 size+mtime，换图自动失效，可用更长缓存
+				w.Header().Set("Cache-Control", "public, max-age=86400")
+				w.Write(data)
+				return
+			}
+		}
+	}
+	http.ServeFile(w, r, target)
 }
 
 // App struct
@@ -244,7 +269,7 @@ func (a *App) GetEnginePath() string {
 func (a *App) RefreshGameMods() bool {
 	ok := input.RefreshMods()
 	if ok {
-		a.log("已向游戏窗口发送 F10 → F2 刷新指令")
+		a.log("已向游戏窗口发送 F10 刷新指令")
 	} else {
 		a.log("刷新游戏 Mod 失败：未找到游戏窗口")
 	}

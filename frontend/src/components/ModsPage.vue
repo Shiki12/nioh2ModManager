@@ -67,5 +67,5 @@ const filteredInstalled = computed(() => {
 .filter-bar :deep(.ant-radio-group) { display: flex; gap: 8px; }
 .filter-bar :deep(.ant-radio-button-wrapper) { border-radius: 6px; }
 .filter-bar :deep(.ant-radio-button-wrapper:not(:first-child)::before) { display: none; }
-.mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+.mod-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); grid-auto-rows: 1fr; gap: 12px; align-items: stretch; }
 </style>
