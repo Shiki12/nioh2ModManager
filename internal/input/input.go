@@ -2,6 +2,8 @@
 package input
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -9,17 +11,24 @@ import (
 )
 
 var (
-	user32               = syscall.NewLazyDLL("user32.dll")
-	procEnumWindows      = user32.NewProc("EnumWindows")
-	procGetWindowTextW   = user32.NewProc("GetWindowTextW")
-	procShowWindow       = user32.NewProc("ShowWindow")
-	procSetForegroundWin = user32.NewProc("SetForegroundWindow")
-	procKeybdEvent       = user32.NewProc("keybd_event")
+	user32                      = syscall.NewLazyDLL("user32.dll")
+	procEnumWindows             = user32.NewProc("EnumWindows")
+	procGetWindowTextW          = user32.NewProc("GetWindowTextW")
+	procGetWindowThreadProcID   = user32.NewProc("GetWindowThreadProcessId")
+	procIsWindowVisible         = user32.NewProc("IsWindowVisible")
+	procShowWindow              = user32.NewProc("ShowWindow")
+	procSetForegroundWin        = user32.NewProc("SetForegroundWindow")
+	procKeybdEvent              = user32.NewProc("keybd_event")
+	kernel32                    = syscall.NewLazyDLL("kernel32.dll")
+	procOpenProcess             = kernel32.NewProc("OpenProcess")
+	procQueryFullProcessImage   = kernel32.NewProc("QueryFullProcessImageNameW")
+	procCloseHandle             = kernel32.NewProc("CloseHandle")
 )
 
 const (
-	VK_F10     = 0x79
-	SW_RESTORE = 9
+	VK_F10                        = 0x79
+	SW_RESTORE                    = 9
+	PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 )
 
 // BringToForeground 把目标窗口带到前台并恢复（若最小化）。
@@ -41,8 +50,10 @@ func SendKey(vk uintptr) {
 // SendF10 发送 F10（纯重载）
 func SendF10() { SendKey(VK_F10) }
 
-// FindGameWindow 遍历所有顶层窗口，返回标题包含任一关键词的窗口句柄
-// 返回 0 表示未找到
+// FindGameWindow 遍历所有顶层窗口，返回标题包含任一关键词、且确属游戏本体窗口的句柄。
+// 为避免误匹配（资源管理器/浏览器标题含 "Nioh2"、隐藏的残留窗口、管理器自身窗口等），
+// 额外要求：窗口可见、所属进程不是本程序、且所属进程可执行文件名为 nioh2.exe。
+// 返回 0 表示未找到。
 func FindGameWindow(titles []string) uintptr {
 	var found uintptr
 	cb := syscall.NewCallback(func(hwnd uintptr, lParam uintptr) uintptr {
@@ -55,16 +66,71 @@ func FindGameWindow(titles []string) uintptr {
 		if title == "" {
 			return 1
 		}
+		matched := false
 		for _, t := range titles {
 			if t != "" && strings.Contains(title, t) {
-				found = hwnd
-				return 0
+				matched = true
+				break
 			}
 		}
-		return 1
+		if !matched {
+			return 1
+		}
+		if !isGameWindow(hwnd) {
+			return 1
+		}
+		found = hwnd
+		return 0
 	})
 	procEnumWindows.Call(cb, 0)
 	return found
+}
+
+// isGameWindow 校验窗口确实是游戏本体窗口：可见 + 非本程序进程 + 所属进程名为 nioh2。
+// 进程名拿不到（如权限不足）时退而只要求窗口可见且非本程序，避免误判"游戏已停止"。
+func isGameWindow(hwnd uintptr) bool {
+	visible, _, _ := procIsWindowVisible.Call(hwnd)
+	if visible == 0 {
+		return false
+	}
+	pid := windowPID(hwnd)
+	if pid == 0 || pid == uint32(os.Getpid()) {
+		return false
+	}
+	img := processImage(pid)
+	if img == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(filepath.Base(img)), "nioh2")
+}
+
+// windowPID 返回窗口所属进程 PID，失败返回 0
+func windowPID(hwnd uintptr) uint32 {
+	var pid uint32
+	procGetWindowThreadProcID.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	return pid
+}
+
+// processImage 返回进程可执行文件完整路径，无法获取时返回空串
+func processImage(pid uint32) string {
+	h, _, _ := procOpenProcess.Call(PROCESS_QUERY_LIMITED_INFORMATION, 0, uintptr(pid))
+	if h == 0 {
+		return ""
+	}
+	defer procCloseHandle.Call(h)
+	var buf [512]uint16
+	size := uint32(len(buf))
+	procQueryFullProcessImage.Call(h, 0, uintptr(unsafe.Pointer(&buf[0])), uintptr(unsafe.Pointer(&size)))
+	return syscall.UTF16ToString(buf[:])
+}
+
+// FindGamePID 返回游戏窗口所属进程 PID，未找到返回 0
+func FindGamePID() uint32 {
+	hwnd := FindGameWindow([]string{"Nioh2 1.28.08", "Nioh2 1.28", "Nioh2"})
+	if hwnd == 0 {
+		return 0
+	}
+	return windowPID(hwnd)
 }
 
 // RefreshMods 刷新游戏内 Mod（纯重载，不切换 Mod 引擎开关）：

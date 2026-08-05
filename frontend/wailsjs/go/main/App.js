@@ -138,6 +138,10 @@ export function InstallModEngine() {
   return window['go']['main']['App']['InstallModEngine']();
 }
 
+export function IsGameRunning() {
+  return window['go']['main']['App']['IsGameRunning']();
+}
+
 export function LaunchGame() {
   return window['go']['main']['App']['LaunchGame']();
 }
@@ -224,6 +228,10 @@ export function SetSubModParts(arg1, arg2, arg3) {
 
 export function SetUpdateUrl(arg1) {
   return window['go']['main']['App']['SetUpdateUrl'](arg1);
+}
+
+export function StopGame() {
+  return window['go']['main']['App']['StopGame']();
 }
 
 export function UninstallMod(arg1) {

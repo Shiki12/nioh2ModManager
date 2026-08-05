@@ -72,6 +72,8 @@ export function InstallMod(arg1:string,arg2:Record<string, Array<string>>):Promi
 
 export function InstallModEngine():Promise<void>;
 
+export function IsGameRunning():Promise<boolean>;
+
 export function LaunchGame():Promise<void>;
 
 export function ListFolderImages(arg1:string):Promise<Array<string>>;
@@ -115,6 +117,8 @@ export function SetSubModCover(arg1:string,arg2:string,arg3:string):Promise<void
 export function SetSubModParts(arg1:string,arg2:string,arg3:Record<string, Array<string>>):Promise<void>;
 
 export function SetUpdateUrl(arg1:string):Promise<void>;
+
+export function StopGame():Promise<void>;
 
 export function UninstallMod(arg1:string):Promise<void>;
 

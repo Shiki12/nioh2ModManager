@@ -2,7 +2,7 @@ import { ref, h } from 'vue'
 import { Modal, message } from 'ant-design-vue'
 import { WarningOutlined } from '@ant-design/icons-vue'
 import {
-  SearchNioh2Root, RefreshGameMods,
+  SearchNioh2Root, RefreshGameMods, IsGameRunning,
   EnableMod, EnableModAndRefresh, DisableMod, DisableModAndRefresh, ScanMods as ScanModsGo,
   EnableHdrSubMod, EnableHdrSubModAndRefresh, DisableHdrSubMod, DisableHdrSubModAndRefresh,
   SetModsRepo, SetGameRoot, SelectDirectory, DetectGameRoot, InstallMod, GetMods, CheckModConflicts,
@@ -208,6 +208,13 @@ export function useModOperations(settingsForm, mods, needSetup, needModsRepoSetu
   }
 
   async function refreshGame() {
+    // 游戏未启动时直接拦截，避免对未运行的游戏做无意义操作
+    if (!(await IsGameRunning().catch(() => false))) {
+      message.warning('请先启动游戏，再刷新 Mod')
+      addLog('⚠ 游戏未启动，已拦截刷新')
+      await refreshLogs()
+      return
+    }
     addLog('正在向游戏窗口发送 F10 刷新指令...')
     try {
       const ok = await RefreshGameMods()

@@ -15,6 +15,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -274,6 +275,12 @@ func (a *App) RefreshGameMods() bool {
 		a.log("刷新游戏 Mod 失败：未找到游戏窗口")
 	}
 	return ok
+}
+
+// IsGameRunning 判断游戏是否正在运行（按窗口标题识别）
+// 用于前端在游戏未启动时禁用"刷新游戏 Mod"入口，避免无意义操作
+func (a *App) IsGameRunning() bool {
+	return input.FindGameWindow([]string{"Nioh2 1.28.08", "Nioh2 1.28", "Nioh2"}) != 0
 }
 
 func (a *App) EnableMod(modName string) error {
@@ -2142,6 +2149,26 @@ func (a *App) LaunchGame() error {
 		return err
 	}
 	a.log("已启动游戏: " + exe)
+	return nil
+}
+
+// StopGame 停止游戏：按游戏窗口找到 PID 后强制结束进程（未运行则无操作）
+func (a *App) StopGame() error {
+	pid := input.FindGamePID()
+	if pid == 0 {
+		return nil
+	}
+	h, err := syscall.OpenProcess(0x0001 /*PROCESS_TERMINATE*/, false, pid)
+	if err != nil {
+		a.log("打开游戏进程失败: " + err.Error())
+		return err
+	}
+	defer syscall.CloseHandle(h)
+	if err := syscall.TerminateProcess(h, 0); err != nil {
+		a.log("停止游戏失败: " + err.Error())
+		return err
+	}
+	a.log("已停止游戏")
 	return nil
 }
 

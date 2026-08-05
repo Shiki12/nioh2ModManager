@@ -26,6 +26,16 @@
 - 改造：改用 `github.com/ncruces/zenity`（Windows 端底层为现代 `IFileOpenDialog`/COMDLG32）：`SelectDirectory`=目录选择、`SelectFile`=文件选择，保留原 `filter`（`\x00` 分隔）与"用户取消"语义；owner 主窗口用原 `mainWindowHandle()` 兜底逻辑（`GetForegroundWindow`→`GetActiveWindow`→`FindWindow`）。
 - 尝试过但未采用：手写 COM vtable（`harry1453/go-common-file-dialog` 曾引入又移除，最终以 zenity 落地；zenity 需 Go ≤1.24 用 v0.10.14）。
 
+### 🚫 仅游戏运行时允许"刷新游戏 Mod"
+
+- 背景：游戏未启动时，若触发刷新会在 Alt-Tab 中出现多余窗口（属应用/WebView2 常驻辅助窗口在游戏未运行时的暴露，与对话框改造成 zenity 无关）。
+- 曲线解决：新增后端 `IsGameRunning()`（复用 `input.FindGameWindow` 按窗口标题识别）绑定给前端；前端每 3s 轮询 `gameRunning`，顶部"刷新游戏 Mod"按钮在游戏未启动时**置灰禁用**（`.is-disabled`，tooltip 提示"请先启动游戏"），且 `refreshGame` 入口先校验，未运行直接提示返回，杜绝"游戏未启动却刷新"。
+
+### 🎮 启动游戏按钮改为启动/停止二合一
+
+- 新增后端 `StopGame()`（`input.FindGamePID` 按游戏窗口取 PID → `OpenProcess`+`TerminateProcess` 强制结束）与 `input.FindGamePID()` 绑定给前端。
+- 前端持续（每 3s）监听 `gameRunning`：游戏未运行 → 绿色「▶ 启动游戏」；游戏运行中 → 红色「✕ 立即停止」，点击停止游戏；启动/停止后立即刷新运行状态。
+
 ---
 
 ## 历史版本

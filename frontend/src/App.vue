@@ -10,7 +10,7 @@
           </div>
           <div class="header-right">
             <a-space v-if="currentPage === 'mods' || currentPage === 'library'" :size="8" class="header-actions">
-              <a-tooltip title="刷新游戏 Mod"><img :src="refreshImg" class="header-img-btn" alt="刷新游戏 Mod" @click="refreshGame" /></a-tooltip>
+              <a-tooltip :title="gameRunning ? '刷新游戏 Mod' : '请先启动游戏'"><img :src="refreshImg" class="header-img-btn" :class="{ 'is-disabled': !gameRunning }" alt="刷新游戏 Mod" @click="gameRunning && refreshGame()" /></a-tooltip>
               <a-tooltip title="自动安装"><img :src="installImg" class="header-img-btn" alt="自动安装" @click="installMod" /></a-tooltip>
               <a-tooltip title="安装 HDR Mod"><img :src="installHdrImg" class="header-img-btn" :class="{ 'is-loading': installingHdr }" alt="安装 HDR Mod" @click="installHdr" /></a-tooltip>
               <a-tooltip title="刷新列表"><img :src="refreshListImg" class="header-img-btn" alt="刷新列表" @click="refreshMods" /></a-tooltip>
@@ -22,7 +22,8 @@
                 </div>
               </a-tooltip>
             </a-space>
-            <a-button type="primary" class="btn-green launch-btn" @click="launchGame"><template #icon><CaretRightOutlined /></template>启动游戏</a-button>
+            <a-button v-if="!gameRunning" type="primary" class="btn-green launch-btn" @click="launchGame"><template #icon><CaretRightOutlined /></template>启动游戏</a-button>
+            <a-button v-else type="primary" danger class="launch-btn" @click="launchGame"><template #icon><CloseOutlined /></template>立即停止</a-button>
           </div>
         </a-layout-header>
 
@@ -73,9 +74,19 @@
           </template>
           <div class="conflict-group-mods">
             <span class="conflict-group-label">涉及 Mod：</span>
-            <span v-for="(m, mi) in g.mods" :key="m.name" class="conflict-group-mod">
-              <a-switch size="small" :checked="m.enabled" style="margin-right:6px" @change="() => toggleMod(m)" />
-              <b>{{ m.nickname || m.name }}</b><template v-if="mi < g.mods.length - 1">、</template>
+            <span v-for="(entry, mi) in g.mods" :key="entry.mod.name" class="conflict-group-mod">
+              <template v-if="entry.subs.length">
+                <b class="conflict-mod-title">{{ entry.mod.nickname || entry.mod.name }}</b>
+                <span v-for="sub in entry.subs" :key="sub.name" class="conflict-sub-mod">
+                  <a-switch size="small" :checked="sub.enabled" @change="() => toggleSubMod(entry.mod, sub)" />
+                  {{ sub.name }}
+                </span>
+              </template>
+              <template v-else>
+                <a-switch size="small" :checked="entry.mod.enabled" @change="() => toggleMod(entry.mod)" />
+                <b>{{ entry.mod.nickname || entry.mod.name }}</b>
+              </template>
+              <template v-if="mi < g.mods.length - 1">、</template>
             </span>
           </div>
           <div class="conflict-group-edges">
@@ -426,7 +437,7 @@
 </template>
 
 <script setup>
-import { ref, computed, provide, watch, onMounted } from 'vue'
+import { ref, computed, provide, watch, onMounted, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
 import refreshImg from './assets/images/refresh.png'
 import refreshListImg from './assets/images/refresh-list.png'
@@ -436,7 +447,7 @@ import conflictImg from './assets/images/conflict.png'
 import cardToolImg from './assets/images/card-tool.png'
 import { ReloadOutlined, FolderOpenOutlined, FileImageOutlined, CopyOutlined, LoadingOutlined, CheckCircleOutlined, CaretRightOutlined, PictureOutlined, CloseOutlined, FileTextOutlined, LeftOutlined, RightOutlined, StarOutlined } from '@ant-design/icons-vue'
 
-import { SelectImageFile, SetModCover, SetModNickname, CheckModEngine, InstallModEngine, GetEnginePath, OpenDirectory, GetArmorParts, GetWeaponParts, SetModParts, SetSubModParts, GenerateSubModModJson, RemoveModRecord, UninstallMod, LaunchGame, SelectDirectory, ImportMod, GetModConfig, AddModPreview, RemoveModPreview, RefreshModPreviews, GetSubModPreviews, AddSubModPreview, RemoveSubModPreview, SetSubModCover, InstallHdrMod } from '../wailsjs/go/main/App'
+import { SelectImageFile, SetModCover, SetModNickname, CheckModEngine, InstallModEngine, GetEnginePath, OpenDirectory, GetArmorParts, GetWeaponParts, SetModParts, SetSubModParts, GenerateSubModModJson, RemoveModRecord, UninstallMod, LaunchGame, StopGame, SelectDirectory, ImportMod, GetModConfig, AddModPreview, RemoveModPreview, RefreshModPreviews, GetSubModPreviews, AddSubModPreview, RemoveSubModPreview, SetSubModCover, InstallHdrMod, IsGameRunning } from '../wailsjs/go/main/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import AppSider from './components/AppSider.vue'
 import ModsPage from './components/ModsPage.vue'
@@ -537,6 +548,16 @@ const {
 // 启动后加载一次冲突检测结果（数据文件已在后端加载）
 onMounted(() => { loadConflicts() })
 
+// ---- 游戏运行状态（用于禁用"刷新游戏 Mod"） ----
+const gameRunning = ref(false)
+let gamePollTimer = null
+async function pollGameRunning() {
+  try { gameRunning.value = await IsGameRunning() } catch (_) {}
+}
+pollGameRunning()
+gamePollTimer = setInterval(pollGameRunning, 3000)
+onUnmounted(() => { if (gamePollTimer) clearInterval(gamePollTimer) })
+
 // ---- 冲突解决 ----
 const conflictVisible = ref(false)
 const cardToolVisible = ref(false)
@@ -549,6 +570,21 @@ const conflictNameToMod = computed(() => {
 function nickOf(name) {
   const m = conflictNameToMod.value[name]
   return m?.nickname || name
+}
+
+/** 组合包中实际占用冲突资源（slot=value）的已启用子 Mod 列表 */
+function implicatedSubs(mod, edges) {
+  if (!mod.submods || !mod.submods.length) return []
+  const res = []
+  for (const e of edges) {
+    if (e.a !== mod.name && e.b !== mod.name) continue
+    for (const sub of mod.submods) {
+      if (!sub.enabled) continue
+      const vals = sub.parts && sub.parts[e.slot]
+      if (vals && vals.indexOf(e.value) !== -1 && res.indexOf(sub) === -1) res.push(sub)
+    }
+  }
+  return res
 }
 const conflictGroups = computed(() => {
   // 全部使用 Map，避免 Mod 名为 constructor/prototype 等原型属性名时污染冲突
@@ -598,7 +634,11 @@ const conflictGroups = computed(() => {
   return order.map(r => {
     const g = groups.get(r)
     return {
-      mods: g.mods.map(name => (name != null ? conflictNameToMod.value[name] : null)).filter(Boolean),
+      mods: g.mods.map(name => {
+        const mod = name != null ? conflictNameToMod.value[name] : null
+        if (!mod) return null
+        return { mod, subs: implicatedSubs(mod, g.edges) }
+      }).filter(Boolean),
       edges: g.edges,
     }
   })
@@ -607,12 +647,15 @@ const conflictGroups = computed(() => {
 // 打开 Mod 托管目录弹窗时自动核对游戏目录（带加载动画）
 watch(() => needModsRepoSetup.value && !needSetup.value, (open) => { if (open) detectGameRootForConfirm() }, { immediate: true })
 
-// ---- 启动游戏 ----
+// ---- 启动 / 停止游戏（依据游戏运行状态切换） ----
 async function launchGame() {
-  try {
-    await LaunchGame()
-    await refreshLogs()
-  } catch (_) { await refreshLogs() }
+  if (gameRunning.value) {
+    try { await StopGame() } catch (e) { addLog(`停止游戏失败: ${e}`) }
+  } else {
+    try { await LaunchGame() } catch (e) { addLog(`启动游戏失败: ${e}`) }
+  }
+  await pollGameRunning()
+  await refreshLogs()
 }
 
 // ---- 安装 HDR Mod（顶部工具栏） ----
@@ -1188,6 +1231,7 @@ async function saveModEdit() {
 .header-img-btn { display: block; width: 44px; height: 44px; padding: 7px; box-sizing: border-box; object-fit: contain; background: #f5f5f5; border-radius: 9px; cursor: pointer; transition: transform .15s, background .15s, box-shadow .15s; }
 .header-img-btn:hover { transform: scale(1.08); background: #e8f1fe; box-shadow: 0 0 0 2px rgba(26,115,232,.18); }
 .header-img-btn.is-loading { opacity: .5; }
+.header-img-btn.is-disabled { opacity: .4; filter: grayscale(1); cursor: not-allowed; pointer-events: none; }
 .launch-btn { flex-shrink: 0; margin-left: 16px; height: 44px; padding: 0 20px; font-size: 16px; display: inline-flex; align-items: center; gap: 6px; }
 .conflict-img-wrap { position: relative; cursor: pointer; }
 .conflict-badge { position: absolute; top: -4px; right: -4px; min-width: 20px; height: 20px; line-height: 20px; padding: 0 6px; box-sizing: border-box; border-radius: 11px; background: #f5222d; color: #fff; font-size: 12px; font-weight: 600; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.3); z-index: 2; }
@@ -1202,6 +1246,8 @@ async function saveModEdit() {
 .conflict-group-label { color: #888; font-size: 12px; }
 .conflict-group-mod { display: inline-flex; align-items: center; }
 .conflict-group-mod b { color: #333; }
+.conflict-mod-title { color: #d4380d; font-weight: 600; margin-right: 4px; }
+.conflict-sub-mod { display: inline-flex; align-items: center; gap: 4px; margin-left: 12px; color: #555; font-size: 13px; }
 .conflict-group-edges { margin-top: 6px; padding-top: 6px; border-top: 1px dashed #ffd8bf; }
 .conflict-edge { line-height: 1.9; color: #d4380d; font-size: 13px; }
 .launch-btn { flex-shrink: 0; margin-left: 16px; height: 40px; padding: 0 18px; font-size: 15px; display: inline-flex; align-items: center; gap: 6px; }
