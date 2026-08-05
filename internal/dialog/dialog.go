@@ -1,30 +1,26 @@
-// Package dialog 提供 Windows 原生文件夹选择对话框
+// Package dialog 提供 Windows 现代文件/文件夹选择对话框
+// 基于 github.com/ncruces/zenity（Windows 端使用 IFileOpenDialog / COMDLG32）
 package dialog
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"syscall"
 	"unsafe"
-)
 
-var (
-	shell32                 = syscall.NewLazyDLL("shell32.dll")
-	ole32                   = syscall.NewLazyDLL("ole32.dll")
-	comdlg32                = syscall.NewLazyDLL("comdlg32.dll")
-	user32                  = syscall.NewLazyDLL("user32.dll")
-	procSHBrowseForFolder   = shell32.NewProc("SHBrowseForFolderW")
-	procSHGetPathFromIDList = shell32.NewProc("SHGetPathFromIDListW")
-	procGetOpenFileName     = comdlg32.NewProc("GetOpenFileNameW")
-	procCoInitializeEx      = ole32.NewProc("CoInitializeEx")
-	procCoUninitialize      = ole32.NewProc("CoUninitialize")
-	procGetActiveWindow     = user32.NewProc("GetActiveWindow")
-	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
-	procFindWindow          = user32.NewProc("FindWindowW")
+	"github.com/ncruces/zenity"
 )
 
 // MainWindowTitle 主窗口标题，用于 FindWindow 兜底查找主窗口句柄
 var MainWindowTitle = "nioh2mod-js"
+
+var (
+	user32                  = syscall.NewLazyDLL("user32.dll")
+	procGetActiveWindow     = user32.NewProc("GetActiveWindow")
+	procGetForegroundWindow = user32.NewProc("GetForegroundWindow")
+	procFindWindow          = user32.NewProc("FindWindowW")
+)
 
 // mainWindowHandle 获取主窗口句柄作为对话框 owner。
 // 注意：Wails 的 Go 回调运行在工作线程，GetActiveWindow 是线程相关的会返回 0，
@@ -44,46 +40,40 @@ func mainWindowHandle() uintptr {
 	return 0
 }
 
-const (
-	bifReturnOnlyFSDirs     = 0x00000001
-	bifNewDialogStyle       = 0x00000040
-	coInitApartmentThreaded = 0x2
-)
+// parseFilters 把 "描述\x00模式\x00描述\x00模式\x00" 解析成 zenity.FileFilter 列表
+func parseFilters(filter string) []zenity.FileFilter {
+	parts := strings.Split(filter, "\x00")
+	var filters []zenity.FileFilter
+	for i := 0; i+1 < len(parts); i += 2 {
+		if parts[i] == "" && parts[i+1] == "" {
+			continue
+		}
+		filters = append(filters, zenity.FileFilter{
+			Name:     parts[i],
+			Patterns: strings.Split(parts[i+1], ";"),
+		})
+	}
+	return filters
+}
+
+// baseOptions 构造通用选项：标题、以本应用主窗口为 owner（模态居中于其上）
+func baseOptions(title string) []zenity.Option {
+	return []zenity.Option{
+		zenity.Title(title),
+		zenity.Attach(mainWindowHandle()),
+		zenity.Modal(),
+	}
+}
 
 // SelectDirectory 打开 Windows 文件夹选择对话框（以主窗口为 owner，居中显示在其上方）
 func SelectDirectory(title string) (string, error) {
-	procCoInitializeEx.Call(0, coInitApartmentThreaded)
-	defer procCoUninitialize.Call()
-
-	hwnd := mainWindowHandle()
-
-	titlePtr, _ := syscall.UTF16PtrFromString(title)
-	bi := struct {
-		hwndOwner      uintptr
-		pidlRoot       uintptr
-		pszDisplayName *uint16
-		lpszTitle      *uint16
-		ulFlags        uint32
-		lpfn           uintptr
-		lParam         uintptr
-		iImage         int32
-	}{
-		hwndOwner: hwnd,
-		lpszTitle: titlePtr,
-		ulFlags:   bifReturnOnlyFSDirs | bifNewDialogStyle,
-	}
-
-	pidl, _, _ := procSHBrowseForFolder.Call(uintptr(unsafe.Pointer(&bi)))
-	if pidl == 0 {
+	opts := baseOptions(title)
+	opts = append(opts, zenity.Directory())
+	path, err := zenity.SelectFile(opts...)
+	if errors.Is(err, zenity.ErrCanceled) {
 		return "", fmt.Errorf("用户取消了选择")
 	}
-
-	var path [260]uint16
-	ret, _, _ := procSHGetPathFromIDList.Call(pidl, uintptr(unsafe.Pointer(&path[0])))
-	if ret == 0 {
-		return "", fmt.Errorf("获取路径失败")
-	}
-	return syscall.UTF16ToString(path[:]), nil
+	return path, err
 }
 
 // SelectFile 打开 Windows 文件选择对话框
@@ -91,62 +81,13 @@ func SelectDirectory(title string) (string, error) {
 //
 //	"图片(*.png;*.jpg)\x00*.png;*.jpg\x00所有文件(*.*)\x00*.*\x00"
 func SelectFile(title, filter string) (string, error) {
-	procCoInitializeEx.Call(0, coInitApartmentThreaded)
-	defer procCoUninitialize.Call()
-
-	titlePtr, _ := syscall.UTF16PtrFromString(title)
-	hwnd := mainWindowHandle()
-
-	parts := strings.Split(filter, "\x00")
-	filterUTF16 := make([]uint16, 0, 256)
-	for _, p := range parts {
-		for _, r := range p {
-			filterUTF16 = append(filterUTF16, uint16(r))
-		}
-		filterUTF16 = append(filterUTF16, 0)
+	opts := baseOptions(title)
+	if filters := parseFilters(filter); len(filters) > 0 {
+		opts = append(opts, zenity.FileFilters(filters))
 	}
-	filterUTF16 = append(filterUTF16, 0)
-
-	const (
-		ofnFileMustExist = 0x00001000
-		ofnHideReadOnly  = 0x00000004
-		ofnPathMustExist = 0x00000800
-	)
-
-	fields := []struct {
-		off  uintptr
-		sz   uintptr
-		val  uintptr
-	}{
-		{0, 4, 152},                                    // lStructSize
-		{16, 8, hwnd},                                  // hwndOwner
-		{24, 8, uintptr(unsafe.Pointer(&filterUTF16[0]))}, // lpstrFilter
-		{44, 4, 1},                                     // nFilterIndex
-		{56, 4, 260},                                   // nMaxFile
-		{88, 8, uintptr(unsafe.Pointer(titlePtr))},     // lpstrTitle
-		{96, 4, ofnFileMustExist | ofnHideReadOnly | ofnPathMustExist}, // Flags
-	}
-
-	fileBuf := make([]uint16, 260)
-	fields = append(fields,
-		struct{off uintptr; sz uintptr; val uintptr}{48, 8, uintptr(unsafe.Pointer(&fileBuf[0]))}, // lpstrFile
-	)
-
-	var ofnBuf [152]byte
-	ofn := unsafe.Pointer(&ofnBuf[0])
-	for _, f := range fields {
-		switch f.sz {
-		case 4:
-			*(*uint32)(unsafe.Add(ofn, f.off)) = uint32(f.val)
-		case 8:
-			*(*uintptr)(unsafe.Add(ofn, f.off)) = f.val
-		}
-	}
-
-	ret, _, _ := procGetOpenFileName.Call(uintptr(ofn))
-	if ret == 0 {
+	path, err := zenity.SelectFile(opts...)
+	if errors.Is(err, zenity.ErrCanceled) {
 		return "", fmt.Errorf("用户取消了选择")
 	}
-
-	return syscall.UTF16ToString(fileBuf[:]), nil
+	return path, err
 }

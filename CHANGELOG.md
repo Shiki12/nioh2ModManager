@@ -14,6 +14,18 @@
 - **弹窗内子 Mod 卡片隐藏缩略图**：`ModCard.vue` 新增 `hideThumbs` 属性，编辑/安装弹窗内的子 Mod 卡片传 `hide-thumbs`，组合包弹窗不再一次性加载几十张全尺寸图。
 - **卡片固定等高**：`ModsPage.vue` 网格与 `App.vue` 子 Mod 网格加 `grid-auto-rows: 1fr`，`ModCard.vue` 卡片 `height:100%` + flex 纵向铺满、效果图行 `margin-top:auto` 贴底，卡片不再因内容多少高低不齐。
 
+### 🪟 修复刷新 Mod 带出 "GDI+ Window"
+
+- 根因：刷新时 `input.BringToForeground` 做了过重的激活（`BringWindowToTop` + 模拟 Alt 键 + `AttachThreadInput`），把游戏进程自带的 `GDI+ Window`（gdiplus 内部消息窗口）激活进 Alt-Tab/任务栏。
+- 修复：`BringToForeground` 改为参照 `verify/verifyPresson` 的轻量方式——仅 `ShowWindow(SW_RESTORE)` + `SetForegroundWindow`，删除 `BringWindowToTop`/模拟 Alt/`GetForegroundWindow`/`AttachThreadInput`（对应 proc、常量一并移除）。捕获窗口 + 模拟按键本身不会产生该窗口。
+- **补充确认**：`GDI+ Window` 还会因旧的 `SHBrowseForFolder`/`GetOpenFileName` 对话框加载 gdiplus 而出现在本进程（游戏未启动时明显，见下条对话框改造）。
+
+### 📂 文件/文件夹选择框改用现代对话框（zenity）
+
+- 根因：`internal/dialog` 原先用 `SHBrowseForFolder`(shell32) 和 `GetOpenFileName`(comdlg32) 手拼 `OPENFILENAME` 裸结构，老式对话框会把 `gdiplus.dll` 拉进进程并创建 `GDI+ Window`；且裸结构代码脆弱。
+- 改造：改用 `github.com/ncruces/zenity`（Windows 端底层为现代 `IFileOpenDialog`/COMDLG32）：`SelectDirectory`=目录选择、`SelectFile`=文件选择，保留原 `filter`（`\x00` 分隔）与"用户取消"语义；owner 主窗口用原 `mainWindowHandle()` 兜底逻辑（`GetForegroundWindow`→`GetActiveWindow`→`FindWindow`）。
+- 尝试过但未采用：手写 COM vtable（`harry1453/go-common-file-dialog` 曾引入又移除，最终以 zenity 落地；zenity 需 Go ≤1.24 用 v0.10.14）。
+
 ---
 
 ## 历史版本

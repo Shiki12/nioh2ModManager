@@ -9,40 +9,25 @@ import (
 )
 
 var (
-	user32                        = syscall.NewLazyDLL("user32.dll")
-	procEnumWindows               = user32.NewProc("EnumWindows")
-	procGetWindowTextW            = user32.NewProc("GetWindowTextW")
-	procShowWindow                = user32.NewProc("ShowWindow")
-	procBringWindowToTop          = user32.NewProc("BringWindowToTop")
-	procSetForegroundWin          = user32.NewProc("SetForegroundWindow")
-	procGetForegroundWindow       = user32.NewProc("GetForegroundWindow")
-	procGetWindowThreadProcessId  = user32.NewProc("GetWindowThreadProcessId")
-	procAttachThreadInput         = user32.NewProc("AttachThreadInput")
-	procKeybdEvent                = user32.NewProc("keybd_event")
+	user32               = syscall.NewLazyDLL("user32.dll")
+	procEnumWindows      = user32.NewProc("EnumWindows")
+	procGetWindowTextW   = user32.NewProc("GetWindowTextW")
+	procShowWindow       = user32.NewProc("ShowWindow")
+	procSetForegroundWin = user32.NewProc("SetForegroundWindow")
+	procKeybdEvent       = user32.NewProc("keybd_event")
 )
 
 const (
 	VK_F10     = 0x79
-	VK_MENU    = 0x12
 	SW_RESTORE = 9
 )
 
-// BringToForeground 尽可能把目标窗口带到前台：
-// 恢复最小化 → 置顶 → 模拟 Alt 解锁前台限制 → AttachThreadInput 强设前台。
-// 全屏独占模式下游戏本就是前台，调用基本无副作用。
+// BringToForeground 把目标窗口带到前台并恢复（若最小化）。
+// 参考 verify/verifyPresson：仅 ShowWindow(SW_RESTORE) + SetForegroundWindow，
+// 不做 BringWindowToTop / 模拟 Alt / AttachThreadInput 等重型激活，
+// 避免把游戏进程的 "GDI+ Window" 辅助窗口激活到 Alt-Tab/任务栏。
 func BringToForeground(hwnd uintptr) {
 	procShowWindow.Call(hwnd, SW_RESTORE)
-	procBringWindowToTop.Call(hwnd)
-	procKeybdEvent.Call(VK_MENU, 0, 0, 0)
-	procKeybdEvent.Call(VK_MENU, 0, 2, 0)
-	fore, _, _ := procGetForegroundWindow.Call()
-	_, foreTid, _ := procGetWindowThreadProcessId.Call(fore, 0)
-	_, targetTid, _ := procGetWindowThreadProcessId.Call(hwnd, 0)
-	if fore != hwnd && foreTid != 0 && targetTid != 0 {
-		procAttachThreadInput.Call(foreTid, targetTid, 1)
-		procSetForegroundWin.Call(hwnd)
-		procAttachThreadInput.Call(foreTid, targetTid, 0)
-	}
 	procSetForegroundWin.Call(hwnd)
 }
 
