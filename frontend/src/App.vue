@@ -40,6 +40,7 @@
             :installMod="openInstallMod"
             :uninstallMod="uninstallMod"
             :removeRecord="removeRecord"
+            :onRefash="openRefashion"
           />
           <SettingsPage
             v-else-if="currentPage === 'settings'"
@@ -63,6 +64,13 @@
         <LogPanel />
       </a-layout>
     </a-layout>
+
+    <!-- 弹窗：一键幻化 -->
+    <RefashionModal
+      v-model:open="refashVisible"
+      :mod="refashMod"
+      @done="onRefashDone"
+    />
 
     <!-- 弹窗：冲突管理 -->
     <a-modal v-model:open="conflictVisible" title="冲突管理" :footer="null" width="680px">
@@ -220,6 +228,7 @@
                 @toggle-sub="() => toggleSubMod(installingMod, sub)"
                 @toggle-sub-refresh="() => toggleSubModRefresh(installingMod, sub)"
                 @edit="() => openSubEdit(sub)"
+                @refash="openRefashion"
               />
             </div>
           </template>
@@ -317,6 +326,7 @@
               @toggle-sub="() => toggleSubMod(editingMod, sub)"
               @toggle-sub-refresh="() => toggleSubModRefresh(editingMod, sub)"
               @edit="() => openSubEdit(sub)"
+              @refash="openRefashion"
             />
           </div>
         </template>
@@ -456,6 +466,7 @@ import SettingsPage from './components/SettingsPage.vue'
 import AuthorTool from './components/AuthorTool.vue'
 import LogPanel from './components/LogPanel.vue'
 import ModCard from './components/ModCard.vue'
+import RefashionModal from './components/RefashionModal.vue'
 
 import { useLogger } from './composables/useLogger.js'
 import { useModData } from './composables/useModData.js'
@@ -561,6 +572,18 @@ onUnmounted(() => { if (gamePollTimer) clearInterval(gamePollTimer) })
 // ---- 冲突解决 ----
 const conflictVisible = ref(false)
 const cardToolVisible = ref(false)
+
+// ---- 一键幻化 ----
+const refashVisible = ref(false)
+const refashMod = ref(null)
+function openRefashion(mod) {
+  refashMod.value = mod
+  refashVisible.value = true
+}
+function onRefashDone(result) {
+  if (result?.ok) message.success(result.message || '幻化完成')
+  else message.error(result?.message || '幻化失败')
+}
 const conflictCount = computed(() => (conflicts?.value?.length || 0))
 const conflictNameToMod = computed(() => {
   const map = {}

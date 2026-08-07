@@ -21,7 +21,7 @@
       <a-empty v-if="filteredInstalled.length === 0" description="没有符合筛选条件的 Mod" style="margin-top:60px" />
       <div v-else class="mod-grid">
         <ModCard v-for="mod in filteredInstalled" :key="mod.name" :mod="mod" :conflict-info="conflictsMap[mod.name]"
-          @toggle="toggleMod" @toggleRefresh="toggleModRefresh" @edit="openEditMod" />
+          @toggle="toggleMod" @toggleRefresh="toggleModRefresh" @edit="openEditMod" @refash="onRefash" />
       </div>
     </template>
   </div>
@@ -32,7 +32,7 @@ import { ref, computed } from 'vue'
 import { SearchOutlined } from '@ant-design/icons-vue'
 import ModCard from './ModCard.vue'
 
-const props = defineProps(['mods', 'conflicts', 'toggleMod', 'toggleModRefresh', 'toggleSubMod', 'toggleSubModRefresh', 'openEditMod', 'installMod', 'uninstallMod', 'removeRecord'])
+const props = defineProps(['mods', 'conflicts', 'toggleMod', 'toggleModRefresh', 'toggleSubMod', 'toggleSubModRefresh', 'openEditMod', 'installMod', 'uninstallMod', 'removeRecord', 'onRefash'])
 const installedMods = computed(() => props.mods.filter(m => m.installed && !m.missing))
 
 /** 冲突信息按 Mod 名称索引，供卡片展示当前 Mod 是否有冲突 */

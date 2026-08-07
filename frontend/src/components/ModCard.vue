@@ -10,6 +10,14 @@
             <ZoomInOutlined class="cover-zoom" @click="openPreview(0)" />
           </a-tooltip>
         </div>
+        <a-tooltip v-if="refashHint" :title="refashHint">
+          <div :class="['mod-refash-btn', { disabled: !canRefash }]" @click.stop="canRefash && $emit('refash', mod)">
+            <SkinOutlined /> 一键幻化
+          </div>
+        </a-tooltip>
+        <div v-else-if="canRefash" class="mod-refash-btn" @click.stop="$emit('refash', mod)">
+          <SkinOutlined /> 一键幻化
+        </div>
       </div>
     </template>
     <a-card-meta>
@@ -67,9 +75,9 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { FileImageOutlined, ZoomInOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
+import { FileImageOutlined, ZoomInOutlined, LeftOutlined, RightOutlined, SkinOutlined } from '@ant-design/icons-vue'
 const props = defineProps({ mod: { type: Object, required: true }, isSub: { type: Boolean, default: false }, parentMod: { type: Object, default: null }, conflictInfo: { type: Object, default: null }, hideThumbs: { type: Boolean, default: false } })
-const emit = defineEmits(['toggle', 'toggleRefresh', 'toggleSub', 'toggleSubRefresh', 'edit'])
+const emit = defineEmits(['toggle', 'toggleRefresh', 'toggleSub', 'toggleSubRefresh', 'edit', 'refash'])
 const maxWeapons = 3
 const previewVisible = ref(false)
 const previewIndex = ref(0)
@@ -81,6 +89,23 @@ const flatParts = computed(() => {
   return flat
 })
 const armorText = computed(() => Object.entries(flatParts.value).filter(([k]) => k !== '武器').flatMap(([, vals]) => vals).join('、'))
+const hasEquipment = computed(() => Object.keys(flatParts.value).length > 0)
+// 一键幻化按钮显示条件：
+// 1. 需当前 Mod 已启用；
+// 2. 需有登记的占用装备资源；
+// 3. 组合包（HDR 合集）父卡片不显示（父级不占用资源，改在子 Mod 上幻化）。
+const canRefash = computed(() => {
+  if (!props.mod.enabled) return false
+  if (!hasEquipment.value) return false
+  if (!props.isSub && props.mod.submods && props.mod.submods.length) return false
+  return true
+})
+// 有占用装备但未启用：按钮灰显，tooltip 提示先启用
+const refashHint = computed(() => {
+  if (!hasEquipment.value) return ''
+  if (!props.mod.enabled) return '请先启用该 Mod 再进行一键幻化'
+  return ''
+})
 const weapons = computed(() => flatParts.value['武器'] || [])
 const subEnabledCount = computed(() => (props.mod.submods || []).filter(s => s.enabled).length)
 const conflictText = computed(() => {
@@ -109,7 +134,11 @@ const effectImages = computed(() => {
   }
   return imgs
 })
-const coverSrc = computed(() => (effectImages.value.length ? resolveUrl(effectImages.value[0], 360) : ''))
+const coverSrc = computed(() => {
+  const explicit = props.mod.cover
+  const first = effectImages.value[0]
+  return resolveUrl(explicit || first, 360)
+})
 const previewSrc = computed(() => resolveUrl(effectImages.value[previewIndex.value] || props.mod.cover))
 function onToggle() { if (props.isSub) emit('toggleSub', props.parentMod, props.mod); else emit('toggle', props.mod) }
 // 效果图：mod.json 指定的是相对文件名（随 mod 文件夹走）→ 走 /modfile；
@@ -156,6 +185,11 @@ function previewNav(d) {
 .mod-cover-overlay { position: absolute; top: 4px; right: 4px; z-index: 2; display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,.35); padding: 2px 5px; border-radius: 12px; }
 .cover-zoom { color: #fff; background: rgba(0,0,0,.45); border-radius: 50%; padding: 4px; cursor: pointer; font-size: 14px; }
 .cover-zoom:hover { background: #1a73e8; }
+/* 一键幻化按钮：封面右下角 */
+.mod-refash-btn { position: absolute; right: 8px; bottom: 8px; z-index: 3; display: inline-flex; align-items: center; gap: 4px; background: rgba(26,115,232,.92); color:#fff; font-size: 12px; padding: 3px 10px; border-radius: 999px; cursor: pointer; transition: background .2s; }
+.mod-refash-btn:hover { background: #1a73e8; }
+.mod-refash-btn.disabled { background: rgba(120,130,150,.72); color:#e8e8e8; cursor: not-allowed; }
+.mod-refash-btn.disabled:hover { background: rgba(120,130,150,.72); }
 .mod-title { display: flex; align-items: center; gap: 6px; max-width: 100%; min-width: 0; }
 .mod-title-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font-weight: 600; }
 /* 胶囊标签：统一高度/字号 */
