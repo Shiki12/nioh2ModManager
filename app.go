@@ -22,7 +22,6 @@ import (
 	"golang.org/x/text/encoding/simplifiedchinese"
 	"nioh2mod-js/internal/armordata"
 	"nioh2mod-js/internal/config"
-	"nioh2mod-js/internal/dialog"
 	"nioh2mod-js/internal/input"
 	"nioh2mod-js/internal/mods"
 	"nioh2mod-js/internal/steam"
@@ -99,7 +98,6 @@ func (a *App) startup(ctx context.Context) {
 	a.modData = config.LoadModData()
 	a.logData = config.LoadLogs()
 	a.emitProgress = a.emitModProgressRaw
-	dialog.MainWindowTitle = "nioh2mod-js"
 	a.log("应用启动")
 	a.syncModsFromRepo()
 }
@@ -2118,12 +2116,29 @@ func (a *App) SetModNickname(modName, nickname string) error {
 	return nil
 }
 
+// SelectDirectory 打开 Windows 原生文件夹选择对话框。
+// 使用 Wails 自带 runtime 对话框（内部会将模态框调度到主窗口线程，
+// 避免第三方库在后台线程弹模态框导致关闭时误关主窗口/退出应用）。
+// 取消时返回空字符串且无错误。
 func (a *App) SelectDirectory() (string, error) {
-	return dialog.SelectDirectory("请选择目录")
+	if a.ctx == nil {
+		return "", fmt.Errorf("应用上下文未就绪")
+	}
+	return runtime.OpenDirectoryDialog(a.ctx, runtime.OpenDialogOptions{Title: "请选择目录"})
 }
 
+// SelectImageFile 打开 Windows 原生文件选择对话框（图片筛选）。
 func (a *App) SelectImageFile() (string, error) {
-	return dialog.SelectFile("选择封面图片", "图片文件(*.png;*.jpg;*.jpeg)\x00*.png;*.jpg;*.jpeg\x00所有文件(*.*)\x00*.*\x00")
+	if a.ctx == nil {
+		return "", fmt.Errorf("应用上下文未就绪")
+	}
+	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title: "选择封面图片",
+		Filters: []runtime.FileFilter{{
+			DisplayName: "图片文件 (*.png;*.jpg;*.jpeg)",
+			Pattern:     "*.png;*.jpg;*.jpeg",
+		}},
+	})
 }
 
 func (a *App) OpenDirectory(dir string) error {

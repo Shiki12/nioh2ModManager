@@ -44,8 +44,8 @@
 
     <!-- 运行中：进度 + 交互提示 + 日志 -->
     <div v-else-if="running">
-      <a-spin spinning class="running-spin">
-        <div class="running-panel">
+      <div class="running-panel">
+        <div v-if="running" class="global-spin"><a-spin size="small" :spinning="true" /></div>
           <a-progress
             :percent="progressPercent"
             size="small"
@@ -123,7 +123,6 @@
             </template>
           </a-alert>
         </div>
-      </a-spin>
     </div>
 
     <!-- 完成通知 -->
@@ -134,7 +133,8 @@
       :sub-title="doneMsg"
     >
       <template #extra>
-        <a-button type="primary" @click="close">关闭</a-button>
+        <a-button type="primary" @click="close">立即关闭</a-button>
+        <span v-if="countdown > 0" class="auto-close-tip">{{ countdown }} 秒后自动关闭…</span>
       </template>
     </a-result>
 
@@ -177,6 +177,8 @@ const keyConfirmPending = ref(false) // 是否等待玩家按回车确认（校�
 const progress = ref({ step: 0, total: 0 })
 const flowStage = ref(0) // 当前步骤: 0=校准 1=确认 2=自动执行 3=刷新缓存
 const plan = ref([])     // 自动执行阶段的逐件清单 [{slot,name,id,skip}]
+const countdown = ref(0) // 完成后自动关闭倒计时（秒）
+let countdownTimer = null
 
 // 流程图当前高亮步（0..3），完成时指向末尾
 const currentStep = computed(() => {
@@ -262,6 +264,7 @@ watch(() => props.open, async (open) => {
 })
 
 function reset() {
+  clearCountdown()
   running.value = false
   finished.value = false
   doneOk.value = false
@@ -271,6 +274,23 @@ function reset() {
   keyConfirmPending.value = false
   progress.value = { step: 0, total: 0 }
   flowStage.value = 0
+}
+
+// 完成后自动关闭倒计时
+function startCountdown(sec) {
+  clearCountdown()
+  countdown.value = sec
+  countdownTimer = setInterval(() => {
+    countdown.value -= 1
+    if (countdown.value <= 0) {
+      clearCountdown()
+      close()
+    }
+  }, 1000)
+}
+function clearCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+  countdown.value = 0
 }
 
 // 校准交互需要玩家「用游戏内方向键吸附槽位中心后，不动鼠标，直接按回车确认」——
@@ -315,6 +335,7 @@ function subscribe() {
     zIndex.value += 1
     window.focus()
     emit('done', p)
+    startCountdown(5)
   }))
 }
 function unsubscribe() {
@@ -375,6 +396,7 @@ function onCancel() {
 }
 
 function close() {
+  clearCountdown()
   unsubscribe()
   emit('update:open', false)
 }
@@ -390,7 +412,8 @@ function close() {
 .eq-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .eq-id { color:#999; font-size:12px; font-family:Consolas,monospace; flex-shrink:0; }
 .running-spin { display:block; }
-.running-panel { min-height: 200px; }
+.global-spin { position:absolute; top:16px; right:16px; z-index:2; }
+.running-panel { min-height: 200px; position: relative; }
 .current-banner { position:relative; display:flex; align-items:center; gap:14px; padding:18px 20px; margin-bottom:12px; border-radius:12px; background:linear-gradient(135deg,#fff7e6,#ffecd0); border:2px solid #ffc069; overflow:hidden; }
 .current-pulse { position:absolute; left:0; top:0; width:100%; height:100%; background:radial-gradient(circle, rgba(250,140,22,0.18) 0%, transparent 70%); animation:currentPulse 1.6s ease-in-out infinite; pointer-events:none; }
 @keyframes currentPulse { 0%,100%{opacity:0.35;} 50%{opacity:0.95;} }
@@ -435,4 +458,5 @@ function close() {
 .refresh-alert { margin-bottom: 10px; }
 .prompt-item { font-family:Consolas,monospace; font-size:12px; margin-bottom:4px; }
 .prompt-hint { color:#d48806; font-size:12px; }
+.auto-close-tip { margin-left: 12px; color:#888; font-size:13px; }
 </style>

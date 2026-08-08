@@ -1,5 +1,13 @@
 # 更新日志
 
+## 2026-08-08
+
+### 🐛 修复：关闭文件夹/文件选择弹窗导致整个应用退出
+
+- **根因**：第三方库 zenity 在 Wails 的**后台 IPC 线程**上弹模态对话框（内部 `runtime.LockOSThread` + 在该线程跑嵌套消息循环），并用 `Attach(mainWindowHandle())` 把主窗口设为 owner。Win32 模态普通对话框必须在**主窗口所在线程**调度；zenity 从后台线程弹窗、关闭时归还 owner/焦点，与 WebView2 主窗口的消息泵冲突，主窗口收到异常关闭信号（默认 `HideWindowOnClose=false`）→ 整个应用随之退出。
+- **修复**：`App.SelectDirectory` / `App.SelectImageFile` 改用 Wails 自带 `runtime.OpenDirectoryDialog` / `runtime.OpenFileDialog`（内部 `invokeSync` 将对话框正确调度到主窗口线程）；删除整个 `internal/dialog` 包并移除 zenity 依赖（`go mod tidy` 清理 go.mod/go.sum）。
+- **行为变化**：取消选择不再返回错误，而是返回空字符串 + 无错误（前端 `if (!dir) return` 已兼容），弹窗关闭后应用保持运行。
+
 ## 2026-08-05
 
 ### ⚡ 性能优化：滚动列表 / 打开卡片卡顿修复
