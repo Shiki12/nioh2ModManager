@@ -1,6 +1,23 @@
 # 更新日志
 
+## 2026-08-09
+
+### 🐛 修复：起始槽为空时装备被跳过（上衣没幻化上）
+
+- **现象**：头部槽位无装备、上衣有装备时，自动幻化悬停上衣却捕获不到装备，上衣未被改写。
+- **根因**：hook 的 `equipment_ptr` 槽位会残留上一次悬停（校准/确认阶段）写入的陈旧指针。空头槽不触发编辑器写入新值，道具指针停留在旧值：它与 `prev` 相同 → `traverseCapture` 的 `addr != prev` 永不成立 → 轮询超时被误判为“无装备”跳过；或残留指针被误当成新装备引起错位。
+- **修复**：新增 `Ref.clearSlot()`（`transformation.go`），每次悬停前用 `Process.Write` 把 hook 槽位清零（8 字节全 0）。空槽保持 0 → 超时即明确判定“空槽，跳过”并上报前端；有装备的槽重新触发编辑器写入新指针（≠0）→ 正常捕获改写。三处生效：阶段三逐格循环（`transformation.go:341`）、头槽确认（`transformation.go:396`）。
+- 验证：`go build ./...` 与 `go vet ./internal/transformation/` 通过。
+
 ## 2026-08-08
+
+### ✨ 新功能：应用内一键幻化（动态幻化原生嵌入主程序）
+
+- 把验证线跑通的动态幻化核心（`verify/verifytransformation` 的 `refashion` 库 + `wininput` 封装）**原生嵌入**主应用，新包 `internal/transformation/`：
+  - `transformation.go`（Wails 绑定组件 `Ref`，挂 `main.go` 的 `Bind`）、`refashion_core.go`（hook/捕获/改写核心）、`wininput.go`（GameWindow/Input 封装）。
+  - 事件 `refashionLog`（进度）/`refashionPrompt`（玩家交互确认）/`refashionDone`（结果）；日志并入 `config.LoadLogs` 的 modman.log。
+  - 前端新增 `RefashionModal.vue`，`App.vue` 顶栏加入口、`ModCard.vue` 卡片右上 `一键幻化` 按钮。
+- 流程：校准两槽（方向键吸附）→ 头槽确认 → 逐格自动幻化（鼠标悬停即选中）→ F10 刷新 Mod 缓存。全程 `modman.log` 可追踪；可随时取消并清理已注入 hook。
 
 ### 🐛 修复：关闭文件夹/文件选择弹窗导致整个应用退出
 

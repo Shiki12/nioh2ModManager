@@ -9,6 +9,9 @@
           <a-tooltip title="放大查看效果图">
             <ZoomInOutlined class="cover-zoom" @click="openPreview(0)" />
           </a-tooltip>
+          <a-tooltip v-if="folderPath" title="打开 Mod 文件夹">
+            <FolderOpenOutlined class="cover-zoom" @click="openFolder" />
+          </a-tooltip>
         </div>
         <a-tooltip v-if="refashHint" :title="refashHint">
           <div :class="['mod-refash-btn', { disabled: !canRefash }]" @click.stop="canRefash && $emit('refash', mod)">
@@ -75,9 +78,9 @@
 
 <script setup>
 import { computed, ref } from 'vue'
-import { FileImageOutlined, ZoomInOutlined, LeftOutlined, RightOutlined, SkinOutlined } from '@ant-design/icons-vue'
+import { FileImageOutlined, ZoomInOutlined, LeftOutlined, RightOutlined, SkinOutlined, FolderOpenOutlined } from '@ant-design/icons-vue'
 const props = defineProps({ mod: { type: Object, required: true }, isSub: { type: Boolean, default: false }, parentMod: { type: Object, default: null }, conflictInfo: { type: Object, default: null }, hideThumbs: { type: Boolean, default: false } })
-const emit = defineEmits(['toggle', 'toggleRefresh', 'toggleSub', 'toggleSubRefresh', 'edit', 'refash'])
+const emit = defineEmits(['toggle', 'toggleRefresh', 'toggleSub', 'toggleSubRefresh', 'edit', 'refash', 'openfolder'])
 const maxWeapons = 3
 const previewVisible = ref(false)
 const previewIndex = ref(0)
@@ -139,6 +142,9 @@ const coverSrc = computed(() => {
   const first = effectImages.value[0]
   return resolveUrl(explicit || first, 360)
 })
+// Mod 文件夹路径：子 Mod 打开其父 Mod 所在目录，普通 Mod 打开自身目录
+const folderPath = computed(() => (props.isSub ? props.parentMod?.path : props.mod.path) || '')
+function openFolder() { emit('openfolder', folderPath.value) }
 const previewSrc = computed(() => resolveUrl(effectImages.value[previewIndex.value] || props.mod.cover))
 function onToggle() { if (props.isSub) emit('toggleSub', props.parentMod, props.mod); else emit('toggle', props.mod) }
 // 效果图：mod.json 指定的是相对文件名（随 mod 文件夹走）→ 走 /modfile；

@@ -229,6 +229,7 @@
                 @toggle-sub-refresh="() => toggleSubModRefresh(installingMod, sub)"
                 @edit="() => openSubEdit(sub)"
                 @refash="openRefashion"
+                @openfolder="openModFolderPath"
               />
             </div>
           </template>
@@ -327,6 +328,7 @@
               @toggle-sub-refresh="() => toggleSubModRefresh(editingMod, sub)"
               @edit="() => openSubEdit(sub)"
               @refash="openRefashion"
+              @openfolder="openModFolderPath"
             />
           </div>
         </template>
@@ -969,6 +971,15 @@ function openEditMod(mod) {
   editParts.value = normalizeParts(mod.parts)
   subEditVisible.value = false
   editModVisible.value = true
+}
+// 打开 Mod 所在文件夹（卡片封面"打开文件夹"按钮）
+async function openModFolderPath(path) {
+  if (!path) return
+  try {
+    await OpenDirectory(path)
+  } catch (e) {
+    addLog(`打开文件夹失败: ${e}`)
+  }
 }
 // 组合包父级不占用：隐藏"占用装备资源"选择器
 const isEditingComposite = computed(() => !!(editingMod.value?.submods && editingMod.value.submods.length))

@@ -176,7 +176,7 @@ func (w *GameWindow) BringToFront() bool {
 
 	// 确认已切到前台
 	ok, _, _ := wGetForegroundWindow.Call()
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	return ok == w.hwnd
 }
 
@@ -254,7 +254,7 @@ func (w *GameWindow) PostArrow(vk uintptr) {
 	lRelease := lPress | 0xC0000000                       // 加 key-up (bit30) + previous key state (bit31)
 	wPostMessageW.Call(w.hwnd, WM_KEYDOWN, vk, lPress)
 	wPostMessageW.Call(w.hwnd, WM_KEYUP, vk, lRelease)
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 }
 
 // ================================================================
@@ -319,7 +319,7 @@ func (Input) SendArrow(vk uintptr) {
 	ret1, _, _ := wSendInput.Call(1, uintptr(unsafe.Pointer(&press[0])), 40)
 	ret2, _, _ := wSendInput.Call(1, uintptr(unsafe.Pointer(&release[0])), 40)
 	fmt.Printf("[SendInput] press=%d release=%d（发送后前台=%X）\n", ret1, ret2, curForeground())
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(80 * time.Millisecond)
 }
 
 // MousePos 返回鼠标的屏幕绝对坐标 (x, y)。

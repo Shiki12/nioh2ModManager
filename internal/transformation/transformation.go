@@ -33,6 +33,12 @@ const (
 	KindWeapon Kind = "weapon"
 )
 
+const (
+	// slotCaptureWait 单槽捕获等待窗口。悬停即选中，装备槽应在数秒内被 hook 捕获；
+	// 超过此窗口仍无新捕获，判定为“空槽/无装备”，跳过该槽继续，避免整个流程卡死。
+	slotCaptureWait = 2 * time.Second
+)
+
 // 事件名常量（前端以此订阅）。
 const (
 	EvtLog    = "refashionLog"    // 步骤/进度文本
@@ -237,7 +243,7 @@ func (r *Ref) doFlow(kind Kind, ids []uint16) error {
 	// 先把鼠标挪到屏幕空白区（避开装备槽），再注入 hook，避免捕获到第一个装备栏。
 	r.emitLog(0, len(ids), "先把鼠标移到屏幕空白区（避开装备槽）…")
 	input.MoveTo(40, 40)
-	time.Sleep(600 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 
 	hook, err := r.svc.InstallHook()
 	if err != nil {
@@ -255,8 +261,8 @@ func (r *Ref) doFlow(kind Kind, ids []uint16) error {
 	// ================================================================
 	r.stage = 0
 	r.emitLog(0, len(ids), "【步骤1/3】确定原始坐标和间距：校准两个槽位")
-	sampleSlot := func(label string) (int, int, error) {
-		msg := fmt.Sprintf("校准【%s，第1步/共2步】：\n1. 切回游戏窗口\n2. 用游戏内【方向键】把选择光标精确吸附到【%s】槽正中心\n3. 【不要动鼠标】，按【Alt+Tab】切回本窗口\n4. 按【回车】确认", label, label)
+	sampleSlot := func(label string, step int) (int, int, error) {
+		msg := fmt.Sprintf("校准（第%d点）：请回游戏用方向键吸附到【%s】槽中心，回车确认", step, label)
 		item, ok := r.waitPrompt("calibrate", msg, nil)
 		if !ok {
 			return 0, 0, fmt.Errorf("已取消")
@@ -276,11 +282,11 @@ func (r *Ref) doFlow(kind Kind, ids []uint16) error {
 		if !r.alive() {
 			return fmt.Errorf("已取消")
 		}
-		cxHead, cyHead, err = sampleSlot("头槽")
+		cxHead, cyHead, err = sampleSlot("头槽", 1)
 		if err != nil {
 			return err
 		}
-		cxNext, cyNext, err := sampleSlot("头槽正下方那一格")
+		cxNext, cyNext, err := sampleSlot("头槽正下方那一格", 2)
 		if err != nil {
 			return err
 		}
@@ -288,7 +294,7 @@ func (r *Ref) doFlow(kind Kind, ids []uint16) error {
 		rowDY = cyNext - cyHead
 		if rowDY <= 0 {
 			r.emitLog(0, len(ids), "校准失败：行高须为正（顺序反了或采样偏差），准备重新校准")
-			_, ok := r.waitPrompt("recalibrate", "校准失败：行高须为正（说明两个采样点不在同一竖列或顺序反了）。\n请重新【切回游戏】吸附【头槽】→ 回本窗口回车；再吸附【头槽正下方那一格】→ 回本窗口回车。", nil)
+			_, ok := r.waitPrompt("recalibrate", "校准失败，请重试：\n回游戏吸附【头槽】→ 回车；再吸附【头槽正下方那一格】→ 回车。", nil)
 			if !ok {
 				return fmt.Errorf("已取消")
 			}
@@ -298,8 +304,7 @@ func (r *Ref) doFlow(kind Kind, ids []uint16) error {
 	}
 	r.emitLog(0, len(ids), fmt.Sprintf("校准完成: 头槽客户区(%d,%d) 行向量(%d,%d)", cxHead, cyHead, rowDX, rowDY))
 	// 校准成功后明确弹窗告知（用户需来回切换游戏/弹窗屏幕，必须给出清晰反馈）
-	_, ok := r.waitPrompt("calib-ok",
-		fmt.Sprintf("校准成功！头槽客户区(%d,%d)，行高 %d。\n进入【步骤2/3】确定是否准确：程序会捕获【头槽】当前装备供你核对，请【切回游戏】确认 → 按【回车】继续", cxHead, cyHead, rowDY), nil)
+	_, ok := r.waitPrompt("calib-ok", "校准成功。请回游戏把光标对准【头槽】，回车确认", nil)
 	if !ok {
 		return fmt.Errorf("已取消")
 	}
@@ -313,44 +318,44 @@ func (r *Ref) doFlow(kind Kind, ids []uint16) error {
 	// ================================================================
 	r.stage = 1
 	r.emitLog(1, len(ids), "【步骤2/3】确定是否准确：回到头部槽位并确认…")
-	item, err := r.confirmStartSlotHead(gw, slotClient, 0)
+	_, err = r.confirmStartSlotHead(gw, slotClient, 0)
 	if err != nil {
 		return err
 	}
 
-	// 起始槽（头）改写
-	if len(ids) > 0 && ids[0] != 0 {
-		if err := r.hook.SetRefashionID(item, ids[0]); err != nil {
-			return fmt.Errorf("改写起始槽失败: %w", err)
-		}
-		r.emitLog(1, len(ids), fmt.Sprintf("[1/%d] 头部 幻化ID -> %04X", len(ids), ids[0]))
-	}
-
 	// ================================================================
-	// 阶段三：逐格幻化（自动）
+	// 阶段三：逐格幻化（自动，从头槽 i=0 开始遍历）
 	// ================================================================
 	r.stage = 2
 	r.emitLog(1, len(ids), "【步骤3/4】校准通过，自动执行：逐格幻化…")
 	// ---- 逐格下移：甩开鼠标 → 游戏带回前台 → 定位目标槽 → 捕获 → 改写 ----
-	for i := 1; i < len(ids); i++ {
+	// 从头槽(i=0)开始遍历：某槽为空（无装备）时直接跳过并上报前端。
+	prevAddr := uintptr(0)
+	for i := 0; i < len(ids); i++ {
 		if !r.alive() {
 			return fmt.Errorf("已取消")
 		}
 		input.MoveTo(40, 40)
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
+		r.clearSlot()
 		gw.BringToFront()
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		cx, cy := slotClient(i)
 		sx, sy, ok := gw.ToScreen(cx, cy)
 		if !ok {
 			return fmt.Errorf("槽位坐标换算失败")
 		}
 		input.MoveTo(sx, sy)
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
-		next, err := r.traverseCapture(item.Addr, 30*time.Second)
+		next, captured, err := r.traverseCapture(prevAddr, slotCaptureWait)
 		if err != nil {
 			return fmt.Errorf("捕获第 %d 件失败: %w", i+1, err)
+		}
+		if !captured {
+			// 空槽（无装备）：编辑器入口不触发、slot 里没有新指针 → 跳过，不阻塞流程
+			r.emitLog(i, len(ids), fmt.Sprintf("[%d/%d] 第 %d 格无装备，跳过", i+1, len(ids), i+1))
+			continue
 		}
 		r.emitLog(i, len(ids), fmt.Sprintf("第%d件: 物品ID=%04X 幻化ID=%04X", i+1, next.ItemID, next.ModelID))
 		if ids[i] == 0 {
@@ -360,7 +365,7 @@ func (r *Ref) doFlow(kind Kind, ids []uint16) error {
 		} else {
 			r.emitLog(i+1, len(ids), fmt.Sprintf("[%d/%d] 幻化ID -> %04X", i+1, len(ids), ids[i]))
 		}
-		item = next
+		prevAddr = next.Addr
 	}
 
 	// ================================================================
@@ -378,60 +383,77 @@ func (r *Ref) doFlow(kind Kind, ids []uint16) error {
 
 // confirmStartSlotHead 捕获一次起始槽（头），打印捕获物品让玩家确认是头槽。
 // 玩家确认后返回该物品；不确认则让玩家回游戏移动光标后重新捕获。
+// 若头槽为空（超时未捕获到装备），返回 (nil, nil)，调用方应跳过头部改写。
 func (r *Ref) confirmStartSlotHead(gw *GameWindow, slotClient func(int) (int, int), idx int) (*Item, error) {
 	for {
 		if !r.alive() {
 			return nil, fmt.Errorf("已取消")
 		}
-		item, err := r.traverseCapture(0, 15*time.Second)
-		if err != nil {
-			_, ok := r.waitPrompt("confirm-head", "未捕获到选中物品。\n请【切回游戏】确保光标停在一个装备槽上，然后【不动鼠标】按【Alt+Tab】回本窗口并按【回车】重试", nil)
-			if !ok {
-				return nil, fmt.Errorf("已取消")
-			}
-			continue
-		}
 		// 把鼠标甩开再落回目标槽，确保游戏重新悬停在该槽
 		input.MoveTo(40, 40)
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
+		r.clearSlot()
 		gw.BringToFront()
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		cx, cy := slotClient(idx)
 		sx, sy, _ := gw.ToScreen(cx, cy)
 		input.MoveTo(sx, sy)
-		time.Sleep(400 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 
-		item2, err := r.traverseCapture(0, 15*time.Second)
+		item, captured, err := r.traverseCapture(0, slotCaptureWait)
 		if err != nil {
-			item2 = item
+			return nil, err
 		}
-
-		msg := fmt.Sprintf("【步骤2/3·头槽确认】程序已把鼠标移到头槽并捕获：\n物品ID=%04X 幻化ID=%04X。\n请【切回游戏】确认光标落在【头】槽：\n· 是 → 【不动鼠标】按【Alt+Tab】回本窗口，按【回车】继续\n· 不是 → 回游戏把光标移到【头】槽，再回本窗口按回车重试", item2.ItemID, item2.ModelID)
-		_, ok := r.waitPrompt("confirm-head", msg, item2)
+		if !captured {
+			// 头槽为空：无装备可捕获，直接返回空，由调用方按空槽跳过
+			return nil, nil
+		}
+		msg := fmt.Sprintf("光标是否停在【头部装备栏】？捕获：物品ID=%04X 幻化ID=%04X。\n是 → 回车；不是 → 回游戏对准头槽后重试", item.ItemID, item.ModelID)
+		_, ok := r.waitPrompt("confirm-head", msg, item)
 		if !ok {
 			return nil, fmt.Errorf("已取消")
 		}
-		return item2, nil
+		return item, nil
 	}
+}
+
+// clearSlot 把 hook 槽（equipment_ptr）清零，消除上一次悬停残留的陈旧指针。
+// 若不清理，空槽会被误判：slot 里旧的指针既可能被当成"新捕获"，
+// 也可能等于 prevAddr 导致有装备的槽超时被跳过。
+func (r *Ref) clearSlot() {
+	if r.hook == nil {
+		return
+	}
+	_ = r.svc.Process().Write(r.hook.Slot(), make([]byte, 8))
 }
 
 // traverseCapture 轮询已注入 hook 的 slot，等待捕获到与 prevAddr 不同的新物品指针。
 // prevAddr=0 表示等待任意非空捕获（用于起始槽位）。
-func (r *Ref) traverseCapture(prevAddr uintptr, timeout time.Duration) (*Item, error) {
+//
+// 返回值：
+//   - captured=true：捕获到新物品，item 为其头部信息；
+//   - captured=false：等待超时仍无新指针 —— 视为该槽为空（无装备），
+//     调用方应跳过该槽继续，而不是中止整个流程。
+//   - err：流程已取消或读取失败，调用方应中止。
+func (r *Ref) traverseCapture(prevAddr uintptr, timeout time.Duration) (*Item, bool, error) {
 	deadline := time.Now().Add(timeout)
 	slot := r.hook.Slot()
 	prev := uint64(prevAddr)
 	for time.Now().Before(deadline) {
 		if !r.alive() {
-			return nil, fmt.Errorf("已取消")
+			return nil, false, fmt.Errorf("已取消")
 		}
 		addr, err := r.svc.Process().ReadUint64(slot)
 		if err == nil && addr != 0 && addr != prev {
-			return r.svc.Process().ReadItem(uintptr(addr))
+			item, err := r.svc.Process().ReadItem(uintptr(addr))
+			if err != nil {
+				return nil, false, err
+			}
+			return item, true, nil
 		}
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(120 * time.Millisecond)
 	}
-	return nil, fmt.Errorf("超时: 未捕获到新的选中物品")
+	return nil, false, nil
 }
 
 // waitPrompt 推交互提示并阻塞等待前端 Confirm()（返回 true）或 Cancel（返回 false）。

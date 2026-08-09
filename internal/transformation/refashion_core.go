@@ -67,11 +67,6 @@ var (
 )
 
 const (
-	// ---- 物品结构字段偏移 (CT 表确认) ----
-	offsetItemID   = 0x00 // 物品ID        (2字节) 如 5900 = 怪童大铠-胸甲
-	offsetModelID  = 0x02 // 幻化ID        (2字节) 本方案改写的目标字段
-	offsetQuantity = 0x04 // 数量          (2字节)
-
 	// hookLen 是被我们覆盖的原始指令长度 (48 83 EC 28 0F B7 11 = 7字节)。
 	// 写入 cave 的代码必须重放这些被覆盖的指令, 保证函数行为不变。
 	hookLen = 7
@@ -87,7 +82,7 @@ const (
 	defaultTimeout = 300 * time.Second
 
 	// pollInterval 是轮询 equipment_ptr 槽的间隔。
-	pollInterval = 250 * time.Millisecond
+	pollInterval = 120 * time.Millisecond
 )
 
 // ================================================================
