@@ -15,6 +15,9 @@
               <a-tooltip title="安装 HDR Mod"><img :src="installHdrImg" class="header-img-btn" :class="{ 'is-loading': installingHdr }" alt="安装 HDR Mod" @click="installHdr" /></a-tooltip>
               <a-tooltip title="刷新列表"><img :src="refreshListImg" class="header-img-btn" alt="刷新列表" @click="refreshMods" /></a-tooltip>
               <a-tooltip title="卡片工具"><img :src="cardToolImg" class="header-img-btn" alt="卡片工具" @click="cardToolVisible = true" /></a-tooltip>
+              <a-tooltip :title="gameRunning ? '武器幻化' : '请先启动游戏'">
+                <img :src="weaponIconImg" class="header-img-btn" :class="{ 'is-disabled': !gameRunning }" alt="武器幻化" @click="gameRunning && openWeaponRefashion()" />
+              </a-tooltip>
               <a-tooltip :title="conflictCount > 0 ? '解决冲突' : '没有冲突'">
                 <div class="conflict-img-wrap" @click="conflictVisible = true">
                   <img :src="conflictImg" class="header-img-btn" alt="解决冲突" />
@@ -68,6 +71,13 @@
     <!-- 弹窗：一键幻化 -->
     <RefashionModal
       v-model:open="refashVisible"
+      :mod="refashMod"
+      @done="onRefashDone"
+    />
+
+    <!-- 弹窗：武器幻化（按钮栏独立入口） -->
+    <WeaponRefashionModal
+      v-model:open="weaponRefashVisible"
       :mod="refashMod"
       @done="onRefashDone"
     />
@@ -457,6 +467,7 @@ import installImg from './assets/images/install.png'
 import installHdrImg from './assets/images/install-hdr.png'
 import conflictImg from './assets/images/conflict.png'
 import cardToolImg from './assets/images/card-tool.png'
+import weaponIconImg from './assets/images/weapon-icon.png'
 import { ReloadOutlined, FolderOpenOutlined, FileImageOutlined, CopyOutlined, LoadingOutlined, CheckCircleOutlined, CaretRightOutlined, PictureOutlined, CloseOutlined, FileTextOutlined, LeftOutlined, RightOutlined, StarOutlined } from '@ant-design/icons-vue'
 
 import { SelectImageFile, SetModCover, SetModNickname, CheckModEngine, InstallModEngine, GetEnginePath, OpenDirectory, GetArmorParts, GetWeaponParts, SetModParts, SetSubModParts, GenerateSubModModJson, RemoveModRecord, UninstallMod, LaunchGame, StopGame, SelectDirectory, ImportMod, GetModConfig, AddModPreview, RemoveModPreview, RefreshModPreviews, GetSubModPreviews, AddSubModPreview, RemoveSubModPreview, SetSubModCover, InstallHdrMod, IsGameRunning } from '../wailsjs/go/main/App'
@@ -469,6 +480,7 @@ import AuthorTool from './components/AuthorTool.vue'
 import LogPanel from './components/LogPanel.vue'
 import ModCard from './components/ModCard.vue'
 import RefashionModal from './components/RefashionModal.vue'
+import WeaponRefashionModal from './components/WeaponRefashionModal.vue'
 
 import { useLogger } from './composables/useLogger.js'
 import { useModData } from './composables/useModData.js'
@@ -581,6 +593,12 @@ const refashMod = ref(null)
 function openRefashion(mod) {
   refashMod.value = mod
   refashVisible.value = true
+}
+// 按钮栏「武器幻化」独立入口：弹窗模式由首次打开决定；无当前 Mod 时直接进武器模式
+const weaponRefashVisible = ref(false)
+function openWeaponRefashion() {
+  refashVisible.value = false
+  weaponRefashVisible.value = true
 }
 function onRefashDone(result) {
   if (result?.ok) message.success(result.message || '幻化完成')

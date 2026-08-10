@@ -146,7 +146,7 @@ func (r *Ref) IsActive() bool {
 
 // start 启动一次幻化流程的公共入口。
 func (r *Ref) start(kind Kind, pid uint32, ids []uint16) error {
-	if len(ids) == 0 {
+	if kind != KindWeapon && len(ids) == 0 {
 		return fmt.Errorf("至少需要一个幻化ID")
 	}
 	if pid == 0 {
@@ -192,21 +192,26 @@ func (r *Ref) runFlow(kind Kind, pid uint32, ids []uint16) {
 		runtime.WindowSetAlwaysOnTop(r.ctx, true)
 	}
 
-	// 记录“用户发起幻化”这一操作本身（含类型与逐槽幻化ID清单），持久化到操作日志
+	// 记录“用户发起幻化”这一操作本身（含类型），持久化到操作日志。
+	// 服装流程带逐槽幻化ID清单；武器流程由用户在捕获后指定目标武器，此处只记类型。
 	{
 		kindName := "服装"
 		if kind == KindWeapon {
 			kindName = "武器"
 		}
-		parts := make([]string, 0, len(ids))
-		for i, id := range ids {
-			if id == 0 {
-				parts = append(parts, fmt.Sprintf("#%d=skip", i+1))
-			} else {
-				parts = append(parts, fmt.Sprintf("#%d=%04X", i+1, id))
+		if kind == KindWeapon {
+			pLog.Append(fmt.Sprintf("用户发起幻化[%s]: 目标武器待捕获后指定", kindName))
+		} else {
+			parts := make([]string, 0, len(ids))
+			for i, id := range ids {
+				if id == 0 {
+					parts = append(parts, fmt.Sprintf("#%d=skip", i+1))
+				} else {
+					parts = append(parts, fmt.Sprintf("#%d=%04X", i+1, id))
+				}
 			}
+			pLog.Append(fmt.Sprintf("用户发起幻化[%s]: %s", kindName, strings.Join(parts, " ")))
 		}
-		pLog.Append(fmt.Sprintf("用户发起幻化[%s]: %s", kindName, strings.Join(parts, " ")))
 	}
 
 	svc, err := NewRefashion(pid)
@@ -227,6 +232,12 @@ func (r *Ref) runFlow(kind Kind, pid uint32, ids []uint16) {
 
 // doFlow 执行从注入到逐格改写的完整流程；任一交互点阻塞等待前端确认/取消。
 func (r *Ref) doFlow(kind Kind, ids []uint16) error {
+	// 武器幻化走独立流程：目标武器已由前端预先选定，只需用户选中武器槽并确认，
+	// 捕获后直接改写，不再使用服装的“头槽 + 行向量逐格”模式。
+	if kind == KindWeapon {
+		return r.doWeaponFlow(ids)
+	}
+
 	gw := FindGameWindow()
 	if gw == nil {
 		return fmt.Errorf("未找到游戏窗口")
@@ -417,6 +428,103 @@ func (r *Ref) confirmStartSlotHead(gw *GameWindow, slotClient func(int) (int, in
 	}
 }
 
+// doWeaponFlow 执行武器幻化（简化版）：目标武器ID在前端预先选出并随 ids 传入，
+// 全程只需用户在游戏里悬停武器槽并确认一次，其余（移开光标→回槽捕获→改写→F10）
+// 全部自动完成。
+// 交互点：校准（悬停武器槽+回车确认）→ 自动捕获并写入 → F10 刷新。
+func (r *Ref) doWeaponFlow(ids []uint16) error {
+	if len(ids) == 0 || ids[0] == 0 {
+		return fmt.Errorf("请先选择目标武器")
+	}
+	picked := ids[0]
+
+	gw := FindGameWindow()
+	if gw == nil {
+		return fmt.Errorf("未找到游戏窗口")
+	}
+	gw.BringToFront()
+
+	oX, oY, ook := gw.OriginScreen()
+	cw, ch, cok := gw.ClientSize()
+	if !ook || !cok || cw <= 0 || ch <= 0 {
+		return fmt.Errorf("获取窗口客户区原点/尺寸失败（可能最小化）")
+	}
+	r.emitLog(0, 1, fmt.Sprintf("客户区: 原点(%d,%d) 尺寸 %dx%d", oX, oY, cw, ch))
+
+	// 先把鼠标挪到屏幕空白区（避开装备槽），再注入 hook
+	r.emitLog(0, 1, "先把鼠标移到屏幕空白区（避开装备槽）…")
+	input.MoveTo(40, 40)
+	time.Sleep(300 * time.Millisecond)
+
+	hook, err := r.svc.InstallHook()
+	if err != nil {
+		return fmt.Errorf("注入失败（上游有残留 hook 时需先 cleanup）: %w", err)
+	}
+	r.hook = hook
+	defer r.unhook()
+	r.emitLog(0, 1, "hook 已注入")
+
+	// ================================================================
+	// 阶段一：悬停武器槽并确认（单点校准）
+	// ================================================================
+	r.stage = 0
+	r.emitLog(0, 1, "【步骤1/3】请回游戏悬停要幻化的武器槽")
+	msg := "校准：请回游戏用鼠标悬停到要幻化的【武器槽】上（不要动鼠标），[Alt+Tab]切回本窗口回车确认"
+	_, ok := r.waitPrompt("weapon-calibrate", msg, nil)
+	if !ok {
+		return fmt.Errorf("已取消")
+	}
+	px, py := input.MousePos()
+	wx, wy, sck := gw.ToClient(px, py)
+	if !sck {
+		return fmt.Errorf("采样换算客户区坐标失败")
+	}
+	r.emitLog(0, 1, fmt.Sprintf("武器槽客户区(%d,%d) 捕获槽状态=0x%X", wx, wy, r.slotValue()))
+
+	// ================================================================
+	// 阶段二：读取捕获槽 → 写入幻化ID（不模拟点击）
+	// ================================================================
+	r.stage = 1
+	r.emitLog(1, 1, "【步骤2/3】读取武器槽当前装备…")
+
+	// 用户在悬停确认时，hook 已把该武器指针写入捕获槽，直接读取即可。
+	item, err := r.hook.ReadItemBySlot()
+	if err != nil {
+		// 捕获槽为空：游戏可能未因悬停弹出装备编辑器。回槽重新悬停（仅悬停，不点击）。
+		r.emitLog(1, 1, "捕获槽为空，回到武器槽重新悬停捕获…")
+		sx, sy, ok := gw.ToScreen(wx, wy)
+		if !ok {
+			return fmt.Errorf("槽位坐标换算失败")
+		}
+		retryItem, captured, cerr := r.selectSlotCapture(gw, sx, sy, "武器槽")
+		if cerr != nil {
+			return fmt.Errorf("捕获武器槽装备失败: %w", cerr)
+		}
+		if !captured {
+			return fmt.Errorf("武器槽为空（未捕获到装备）——请确认已装备武器，且游戏里悬停到了该武器槽（坐标 %d,%d）", sx, sy)
+		}
+		item = retryItem
+	}
+	r.emitLog(1, 1, fmt.Sprintf("已捕获武器: 物品ID=%04X 幻化ID=%04X", item.ItemID, item.ModelID))
+
+	if err := r.hook.SetRefashionID(item, picked); err != nil {
+		return fmt.Errorf("改写武器幻化ID失败: %w", err)
+	}
+	r.emitLog(1, 1, fmt.Sprintf("武器幻化ID: %04X -> %04X", item.ModelID, picked))
+
+	// ================================================================
+	// 阶段三：刷新游戏内 Mod 缓存（F10 重载）
+	// ================================================================
+	r.stage = 2
+	r.emitLog(2, 1, "【步骤3/3】刷新游戏内 Mod 缓存…")
+	if modinput.RefreshMods() {
+		r.emitLog(2, 1, "Mod 缓存已刷新")
+	} else {
+		r.emitLog(2, 1, "未找到游戏窗口，跳过 Mod 刷新")
+	}
+	return nil
+}
+
 // clearSlot 把 hook 槽（equipment_ptr）清零，消除上一次悬停残留的陈旧指针。
 // 若不清理，空槽会被误判：slot 里旧的指针既可能被当成"新捕获"，
 // 也可能等于 prevAddr 导致有装备的槽超时被跳过。
@@ -425,6 +533,51 @@ func (r *Ref) clearSlot() {
 		return
 	}
 	_ = r.svc.Process().Write(r.hook.Slot(), make([]byte, 8))
+}
+
+// slotValue 读取 hook 槽当前内容（未捕获时通常为 0），用于诊断。
+func (r *Ref) slotValue() uint64 {
+	if r.hook == nil {
+		return 0
+	}
+	v, err := r.svc.Process().ReadUint64(r.hook.Slot())
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// selectSlotCapture 回到槽位重新悬停捕获其物品（仅悬停，绝不模拟点击）。
+// 适用：捕获槽为空时的兜底重试。游戏菜单"鼠标悬停即选中"，移开再回槽悬停通常
+// 即可重新触发装备编辑器；若仍无捕获，小幅抖动光标（换悬停点再回来）强制一次
+// 悬停转移。点击会触发游戏菜单副作用，且用户悬停即可选中，故不采用。
+func (r *Ref) selectSlotCapture(gw *GameWindow, sx, sy int, label string) (*Item, bool, error) {
+	r.emitLog(r.stage, 1, label+": 移开光标再回到槽位重新悬停…")
+	input.MoveTo(40, 40)
+	time.Sleep(150 * time.Millisecond)
+	r.clearSlot()
+	gw.BringToFront()
+	time.Sleep(150 * time.Millisecond)
+	input.MoveTo(sx, sy)
+	time.Sleep(250 * time.Millisecond)
+
+	item, ok, err := r.traverseCapture(0, 1400*time.Millisecond)
+	if err != nil || ok {
+		return item, ok, err
+	}
+
+	r.emitLog(r.stage, 1, label+": 悬停未捕获，小幅抖动光标重试…")
+	input.MoveTo(sx+8, sy+8)
+	time.Sleep(120 * time.Millisecond)
+	input.MoveTo(sx, sy)
+	time.Sleep(250 * time.Millisecond)
+	item, ok, err = r.traverseCapture(0, 1500*time.Millisecond)
+	if err != nil || ok {
+		return item, ok, err
+	}
+
+	r.emitLog(r.stage, 1, fmt.Sprintf("%s: 仍无捕获（hook slot=0x%X）", label, r.slotValue()))
+	return nil, false, nil
 }
 
 // traverseCapture 轮询已注入 hook 的 slot，等待捕获到与 prevAddr 不同的新物品指针。

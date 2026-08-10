@@ -66,6 +66,19 @@
             </div>
           </div>
 
+          <!-- 武器：指定目标武器 醒目横幅 -->
+          <div v-if="mode === 'weapon' && flowStage === 2 && currentWeapon" class="current-banner weapon-banner">
+            <div class="current-pulse" />
+            <div class="current-body">
+              <div class="current-label">已捕获武器，请指定目标武器</div>
+              <div class="current-main">
+                <a-tag color="orange" class="current-slot">武器</a-tag>
+                <span class="current-name">{{ currentWeapon.name }}</span>
+                <span class="current-id">→ ID {{ hex(currentWeapon.id) }}</span>
+              </div>
+            </div>
+          </div>
+
           <!-- 步骤4: 刷新缓存 状态条 -->
           <a-alert
             v-if="flowStage === 3"
