@@ -11,13 +11,13 @@
           <div class="header-right">
             <a-space v-if="currentPage === 'mods' || currentPage === 'library'" :size="8" class="header-actions">
               <a-tooltip :title="gameRunning ? '刷新游戏 Mod' : '请先启动游戏'"><img :src="refreshImg" class="header-img-btn" :class="{ 'is-disabled': !gameRunning }" alt="刷新游戏 Mod" @click="gameRunning && refreshGame()" /></a-tooltip>
+              <a-tooltip :title="gameRunning ? '武器幻化' : '请先启动游戏'">
+                <img :src="weaponIconImg" class="header-img-btn" :class="{ 'is-disabled': !gameRunning }" alt="武器幻化" @click="gameRunning && openWeaponRefashion()" />
+              </a-tooltip>
               <a-tooltip title="自动安装"><img :src="installImg" class="header-img-btn" alt="自动安装" @click="installMod" /></a-tooltip>
               <a-tooltip title="安装 HDR Mod"><img :src="installHdrImg" class="header-img-btn" :class="{ 'is-loading': installingHdr }" alt="安装 HDR Mod" @click="installHdr" /></a-tooltip>
               <a-tooltip title="刷新列表"><img :src="refreshListImg" class="header-img-btn" alt="刷新列表" @click="refreshMods" /></a-tooltip>
               <a-tooltip title="卡片工具"><img :src="cardToolImg" class="header-img-btn" alt="卡片工具" @click="cardToolVisible = true" /></a-tooltip>
-              <a-tooltip :title="gameRunning ? '武器幻化' : '请先启动游戏'">
-                <img :src="weaponIconImg" class="header-img-btn" :class="{ 'is-disabled': !gameRunning }" alt="武器幻化" @click="gameRunning && openWeaponRefashion()" />
-              </a-tooltip>
               <a-tooltip :title="conflictCount > 0 ? '解决冲突' : '没有冲突'">
                 <div class="conflict-img-wrap" @click="conflictVisible = true">
                   <img :src="conflictImg" class="header-img-btn" alt="解决冲突" />
